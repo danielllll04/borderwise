@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Profile {
+  id                    String   @id
+  displayName           String
+  homeCurrency          String   @default("MYR")
+  destinationCurrency   String   @default("KRW")
+  fixedReserveMinor     BigInt
+  emergencyReserveMinor BigInt
+  fixedReserveBadgeJson String
+  emergencyBadgeJson    String
+  updatedAt             DateTime @updatedAt
+  accounts              Account[]
+  activities            Activity[]
+  entries               LedgerEntry[]
+  receivables           Receivable[]
+  plans                 PlanRecord[]
+  agentSessions         AgentSession[]
+}
+
+model Account {
+  id                    String   @id
+  profileId             String
+  profile               Profile  @relation(fields: [profileId], references: [id])
+  displayName           String
+  currency              String
+  balanceMinor          BigInt   @default(0)
+  balanceBadgeJson      String
+  balanceProvenanceJson String
+  lines                 LedgerLine[]
+}
+
+// Each activity groups principal movements, fee entries, actual inputs and provenance.
+model Activity {
+  id                  String   @id
+  profileId           String
+  profile             Profile  @relation(fields: [profileId], references: [id])
+  kind                String
+  idempotencyKey      String   @unique
+  payloadHash         String
+  inputJson           String
+  inputProvenanceJson String
+  resultJson          String
+  createdAt           DateTime @default(now())
+  entries             LedgerEntry[]
+  settlement          Settlement?
+  completedPlan       PlanRecord?
+}
+
+model LedgerEntry {
+  id         String   @id
+  profileId  String
+  profile    Profile  @relation(fields: [profileId], references: [id])
+  activityId String
+  activity   Activity @relation(fields: [activityId], references: [id])
+  type       String
+  badgeJson  String
+  createdAt  DateTime @default(now())
+  lines      LedgerLine[]
+
+  @@index([profileId, createdAt, id])
+  @@index([activityId])
+}
+
+model LedgerLine {
+  id          String      @id
+  entryId     String
+  entry       LedgerEntry @relation(fields: [entryId], references: [id])
+  accountId   String
+  account     Account     @relation(fields: [accountId], references: [id])
+  amountMinor BigInt
+  currency    String
+
+  @@index([entryId])
+}
+
+model Receivable {
+  id                 String   @id
+  profileId          String
+  profile            Profile  @relation(fields: [profileId], references: [id])
+  debtor             String
+  originalAmountMinor BigInt
+  currency           String
+  snapshotJson       String
+  amountBadgeJson    String
+  settledMinor       BigInt   @default(0)
+  settlements        Settlement[]
+}
+
+model Settlement {
+  id                   String     @id
+  activityId           String     @unique
+  activity             Activity   @relation(fields: [activityId], references: [id])
+  receivableId         String
+  receivable           Receivable @relation(fields: [receivableId], references: [id])
+  clearingMinor        BigInt
+  clearingCurrency     String
+  receivedMinor        BigInt
+  receivedCurrency     String
+  receivingAccountId   String
+  createdAt            DateTime   @default(now())
+}
+
+// Internal workflow persistence. The shared Plan remains unchanged.
+model PlanRecord {
+  id                    String    @id
+  profileId             String
+  profile               Profile   @relation(fields: [profileId], references: [id])
+  quoteJson             String
+  contextJson           String
+  status                String    @default("pending")
+  reserveBreached       Boolean
+  saveCheckJson         String
+  saveAcknowledgementJson String?
+  completionCheckJson   String?
+  completionAcknowledgementJson String?
+  completionJson        String?
+  completionActivityId  String?   @unique
+  completionActivity    Activity? @relation(fields: [completionActivityId], references: [id], onDelete: Restrict)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  cancelledAt           DateTime?
+
+  @@index([profileId, status, createdAt, id])
+  @@index([profileId, createdAt, id])
+}
+
+model WorkflowRequest {
+  operation      String
+  idempotencyKey String
+  payloadHash    String
+  resultJson     String
+  createdAt      DateTime @default(now())
+
+  @@id([operation, idempotencyKey])
+}
+
+model AgentSession {
+  id               String   @id
+  profileId        String
+  profile          Profile  @relation(fields: [profileId], references: [id])
+  decisionJson     String   @default("{}")
+  activeProposalId String?
+  processingTurnId String?
+  leaseExpiresAt   DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  turns            AgentTurn[]
+  messages         AgentMessage[]
+  quotes           AgentQuoteSnapshot[]
+  proposals        AgentProposal[]
+}
+
+model AgentTurn {
+  id             String       @id
+  sessionId      String
+  session        AgentSession @relation(fields: [sessionId], references: [id])
+  idempotencyKey String
+  payloadHash    String
+  requestJson    String
+  status         String       @default("processing")
+  leaseOwner     String
+  responseJson   String?
+  httpStatus     Int?
+  createdAt      DateTime     @default(now())
+  completedAt    DateTime?
+  messages       AgentMessage[]
+  executions     AgentToolExecution[]
+
+  @@unique([sessionId, idempotencyKey])
+}
+
+model AgentMessage {
+  id             Int          @id @default(autoincrement())
+  sessionId      String
+  session        AgentSession @relation(fields: [sessionId], references: [id])
+  turnId         String
+  turn           AgentTurn    @relation(fields: [turnId], references: [id])
+  role           String
+  content        String
+  responseJson   String?
+  referencesJson String
+  createdAt      DateTime     @default(now())
+
+  @@unique([turnId, role])
+  @@index([sessionId, id])
+}
+
+model AgentQuoteSnapshot {
+  id              String       @id
+  sessionId       String
+  session         AgentSession @relation(fields: [sessionId], references: [id])
+  quoteId         String
+  selectionJson   String
+  assumptionsJson String
+  createdAt       DateTime     @default(now())
+  proposals       AgentProposal[]
+
+  @@index([sessionId, quoteId])
+}
+
+model AgentProposal {
+  id              String             @id
+  sessionId       String
+  session         AgentSession       @relation(fields: [sessionId], references: [id])
+  snapshotId      String
+  snapshot        AgentQuoteSnapshot @relation(fields: [snapshotId], references: [id])
+  previewJson     String
+  contextToken    String
+  createdAt       DateTime           @default(now())
+  previews        AgentProposalPreview[]
+
+  @@index([sessionId, snapshotId, contextToken])
+}
+
+model AgentProposalPreview {
+  proposalId String
+  proposal   AgentProposal @relation(fields: [proposalId], references: [id])
+  token      String
+  createdAt  DateTime @default(now())
+
+  @@id([proposalId, token])
+}
+
+model AgentToolExecution {
+  id          String    @id
+  turnId      String
+  turn        AgentTurn @relation(fields: [turnId], references: [id])
+  toolName    String
+  argsJson    String
+  outcome     String
+  summaryJson String
+  durationMs  Int
+  createdAt   DateTime  @default(now())
+}
