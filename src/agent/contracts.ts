@@ -5,6 +5,8 @@ import type { ComparisonOption } from './compare.js';
 import type { Decision } from './inputs.js';
 import type { Understanding } from './decision.js';
 import type { Badge } from '../shared/models.js';
+import type { PendingPlanRiskService } from '../services/pending-plan-risk.js';
+import type { ReceiptCard } from '../receipts/contracts.js';
 
 type PlanReadCard = Pick<PlanResponse, 'plan' | 'created_at' | 'updated_at'>;
 
@@ -18,6 +20,8 @@ export type AgentCard =
   | { type: 'ledger_history'; data: { items: { entry: import('../shared/models.js').LedgerEntry; activity_id: string; created_at: string }[]; next_cursor: string | null } }
   | { type: 'plan_list'; data: { items: PlanReadCard[]; next_cursor: string | null } }
   | { type: 'plan_detail'; data: PlanReadCard }
+  | { type: 'pending_plan_risk'; data: Awaited<ReturnType<PendingPlanRiskService['list']>> }
+  | ReceiptCard
   | { type: 'quote_comparison'; source: 'simulated_fixture' | 'compare'; ranking: string; options: (ComparisonOption & { snapshot_id: string; preview: ActivityAssessment['response'] | null; blocking_error: string | null })[] }
   | { type: 'reserve_warning'; proposal_id: string; data: ActivityAssessment['response'] }
   | { type: 'comparison_unavailable'; status: 'requote_required' | 'unsupported'; reason: string }

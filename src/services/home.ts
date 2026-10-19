@@ -2,10 +2,12 @@ import type { Prisma, PrismaClient, Profile } from '@prisma/client';
 import { z } from 'zod';
 import { DEMO_PROFILE_ID } from '../domain/accounts.js';
 import { AppError } from '../domain/errors.js';
-import { financialValue, makeBadge, readBadge } from '../domain/provenance.js';
+import { deriveBadge, financialValue, makeBadge, readBadge } from '../domain/provenance.js';
+import type { Currency } from '../shared/models.js';
 import { assertReserveTotal, minorSchema, safeNumber } from '../domain/validation.js';
 import { accountResponse, ledgerContract } from './serialization.js';
 import { budgetResponse } from './budget.js';
+import { PendingPlanRiskService, assessmentsUnavailable, type PendingPlanRiskSummary } from './pending-plan-risk.js';
 
 export const profileUpdateSchema = z.object({
   display_name: z.string().trim().min(1).max(100).optional(),
@@ -34,7 +36,8 @@ async function requireProfile(tx: Prisma.TransactionClient) {
 }
 
 export class HomeService {
-  constructor(private readonly db: PrismaClient) {}
+  private readonly pendingPlanRisk: PendingPlanRiskService;
+  constructor(private readonly db: PrismaClient) { this.pendingPlanRisk = new PendingPlanRiskService(db); }
 
   async profile() {
     return this.db.$transaction(async tx => profileResponse(await requireProfile(tx)));
@@ -75,8 +78,32 @@ export class HomeService {
       const accounts = await tx.account.findMany({ where: { profileId: DEMO_PROFILE_ID }, orderBy: { id: 'asc' } });
       const funding = accounts.find(account => account.id === 'myr_funding');
       if (!funding) throw new AppError(409, 'INCOMPLETE_PROFILE', 'MYR Funding account is missing; run npm run db:seed');
-      return { profile: profileResponse(profile), balances: accounts.map(accountResponse), budget: budgetResponse(profile, funding) };
-    });
+      const expenses = await tx.sharedExpense.findMany({
+        where: { profileId: DEMO_PROFILE_ID }, include: { ledgerEntry: { select: { badgeJson: true } } },
+      });
+      // These totals cover recorded shared expenses only, not all-time spending or income.
+      const sharedExpenseTotals = (['MYR', 'KRW'] as const).flatMap((currency: Currency) => {
+        const rows = expenses.filter(row => row.currency === currency);
+        if (!rows.length) return [];
+        const gross = rows.reduce((sum, row) => sum + row.billTotalMinor, 0n);
+        const personal = rows.reduce((sum, row) => sum + row.payerShareMinor, 0n);
+        const badge = deriveBadge(rows.map(row => readBadge(row.ledgerEntry.badgeJson)), 'Recorded shared expenses only: gross cash paid and payer allocation are distinct; repayments are excluded');
+        return [{
+          currency, count: rows.length,
+          gross_cash_paid: financialValue(safeNumber(gross), currency, badge),
+          personal_expense: financialValue(safeNumber(personal), currency, badge),
+          receivables_created: financialValue(safeNumber(gross - personal), currency, badge),
+        }];
+      });
+      let pendingPlanRisk: PendingPlanRiskSummary;
+      try { pendingPlanRisk = await this.pendingPlanRisk.summaryInTransaction(tx, { profile, accounts }); }
+      catch { pendingPlanRisk = assessmentsUnavailable(); }
+      return {
+        profile: profileResponse(profile), balances: accounts.map(accountResponse), budget: budgetResponse(profile, funding),
+        shared_expense_totals: sharedExpenseTotals,
+        pending_plan_risk: pendingPlanRisk,
+      };
+    }, { timeout: 15000 });
   }
 
   async ledger(limit: number, cursor?: string) {

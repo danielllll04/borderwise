@@ -2,6 +2,8 @@
 
 The Agent helps international students read owned balances, inspect limited history/plans, clarify decisions, retrieve supported comparisons and preview a pending-plan proposal. It executes no financial transactions. **Chat cannot save, confirm or cancel a plan, post a ledger entry, or change profiles/reserves.** A chat “yes” is never the frontend Save action.
 
+The later [confirmed Split handover](shared-expenses.md) adds an explicit confirmation endpoint and proposes the additive `shared_expense` ledger type. It is not registered as an Agent financial tool. [Current pending-plan assessments](pending-plan-risk.md) are available through Home and `read_pending_plan_risks`. [Receipt review adapters](receipt-review.md) now let the Agent prepare receipt/assignment metadata, with a separate explicit frontend confirmation. No tool posts financial records. See [limited real Groq observations](groq-verification.md), which distinguish real model tool selection from Simulated adapters.
+
 The current local demo has one unauthenticated profile and only MYR Funding, KRW Card and KRW Cash. Currency/account names are explicit; wording does not assume the user lives in a particular country. Session ownership is enforced against the server's demo-profile context and quote/proposal IDs are scoped to sessions. This is not production authentication or secure multi-user isolation.
 
 ## Configure and run
@@ -31,7 +33,7 @@ npm run dev
 
 The demo adapter labels every response as scripted, performs no model call and needs no credentials. Against that running server, `npm run demo:agent` exercises clarification, comparisons and the fact that chat leaves balances unchanged. Each run creates a session. Optional `DEMO_AGENT_SAVE=true` demonstrates a **separate frontend Save API call**, stopping if reserve acknowledgement is needed. `DEMO_BASE_URL` changes the client's loopback URL. `AGENT_DEMO_FAILURE=rate_limit` or `unavailable` on a demo server explicitly simulates provider failure.
 
-Local verification used these labelled demo modes because Groq configuration was unavailable. Real Groq model/tool behavior is **unverified**; no key should be pasted into chat to resolve this.
+Initial local verification used these labelled demo modes because Groq configuration was unavailable. Later [real Groq smoke checks](groq-verification.md) used local server credentials and isolated data. No key should be pasted into chat. These checks do not verify live comparison, OCR or allocation integrations.
 
 ## API and minimal frontend sequence
 
@@ -91,7 +93,17 @@ Cards include Home balance/budget DTOs, limited shared-ledger entries, small sha
 
 ## Clarification and assumptions
 
-“I need cash for tonight” asks about amount/currency, amount basis and funding account. Material ambiguity is not filled in by the model. Frontends can submit answers as typed `decision` fields alongside a new message:
+### Proposed internal Compare addition for Steve: card network
+
+`POST /api/agent/sessions/:sessionId/messages` accepts optional `decision.card_network` (trimmed lowercase string, 1–60 characters). It is retained in the session decision, model context and quote request metadata, and passed unchanged to `CompareAdapter.compare(decision)`. Recognized network names in chat can populate the slot; structured input supports other network names. The string `unknown` explicitly means the user does not know. Same-objective clarification retains existing slots; a different objective starts a new decision. This does not change the agreed shared Profile, Quote, Plan or LedgerEntry models.
+
+The proposed adapter hook `requiresCardNetwork?(decision): boolean` requests ATM network clarification before Compare runs. Adapters without the hook do not require it. The fixture adapter enables the hook to exercise this flow; its prices do not vary by network and it performs no compatibility filtering or live lookup.
+
+Proposed option metadata, outside shared Quote: `compatibility: { status: "unknown", reason }` or `{ status: "compatible" | "incompatible", card_network, evidence: { source, timestamp } }`. ATM results without evidence matching the requested network remain explicitly unknown. A known network alone proves nothing. Simulated fixtures always have unknown compatibility, even with a real Groq model. Frontend must display that unknown state and the Simulated quote badge; it must not present these options as verified compatible ATMs. Steve still needs to agree the network vocabulary and supply authoritative ATM/provider/network evidence, validity policy and actual filtering. No comparison engine is implemented here.
+
+After the remote team update, root `schemas.py`, `seed_data.py` and `steve_calculator.py` are preserved alongside this backend. Python `CompareQuotesRequest.card_network` accepts canonical UnionPay/Visa/Mastercard/Plus (case-normalized); the internal Agent accepts a lowercase bounded string, including explicit `unknown`. A future adapter must agree how unknown/unsupported networks are represented and must not translate unknown into a compatibility assertion. Python objective/account identifiers, float rates, lowercase fee `money`, SGD support and receipt quantity/unit-price/name fields also differ from the current TypeScript contracts. Map and validate those deliberately before connecting either engine; no engine call, shared-model replacement or frontend integration is part of this handover.
+
+“I need cash for tonight” asks about amount/currency, amount basis, funding account and card network when the adapter requires it. Material ambiguity is not filled in by the model. Frontends can submit answers as typed `decision` fields alongside a new message:
 
 ```json
 {
@@ -102,7 +114,8 @@ Cards include Home balance/budget DTOs, limited shared-ledger entries, small sha
     "amount": { "amount_minor": 90000, "currency": "KRW" },
     "amount_basis": "destination_target",
     "funding_account": "krw_card",
-    "destination_account": "krw_cash"
+    "destination_account": "krw_cash",
+    "card_network": "visa"
   }
 }
 ```
@@ -115,7 +128,7 @@ Unrelated questions do not reset the stored decision or active proposal. On resu
 
 ## Compare adapter and exact fixtures
 
-`CompareAdapter` in `src/agent/compare.ts` can be replaced with Steve's integration. None exists in this repository, so the current implementation uses **complete static simulated fixtures**. It does not calculate quotes or scale fees/received values to arbitrary amounts. Ranking is static adapter order, never model sorting or a claim about market best prices.
+`CompareAdapter` in `src/agent/compare.ts` can be replaced with Steve's integration. The preserved Python calculator is not connected to this TypeScript adapter, so the current implementation uses **complete static simulated fixtures**. It does not calculate quotes or scale fees/received values to arbitrary amounts. Ranking is static adapter order, never model sorting or a claim about market best prices.
 
 | Exact decision | Fixture behavior |
 | --- | --- |
@@ -169,12 +182,17 @@ GET proposal and history reads recheck relevant state and mark old proposed-plan
 
 ## Orchestration, persistence and limits
 
-Allowed tools and strict argument schemas live in `src/agent/tools.ts`: `get_home`, `read_ledger`, `list_plans`, `read_plan`, `compare_options`, `preview_quote`, `request_clarification`, `show_limitation`. They take no profile IDs, arbitrary URLs, SQL or code. Compare arguments use server-validated decision slots, not model amounts. Preview accepts only an owned snapshot ID. Tool descriptions and the system policy treat source/provider/user text as untrusted and cannot grant additional authority.
+Allowed tools and strict argument schemas live in `src/agent/tools.ts`: `get_home`, `read_ledger`, `list_plans`, `read_plan`, `read_pending_plan_risks`, `compare_options`, `preview_quote`, `request_clarification`, `show_limitation`, plus `extract_receipt_review`, `read_receipt_review` and `propose_receipt_allocation`. They take no financial profile IDs, arbitrary URLs, filesystem paths, SQL or code. Receipt participants use validated stable directory IDs; the receipt reference is explicit in the message. Compare arguments use server-validated decision slots, not model amounts. Preview accepts only an owned snapshot ID. Tool descriptions and the system policy treat source/provider/user/receipt text as untrusted and cannot grant additional authority. The receipt tools can persist review metadata only; they cannot invoke confirmation or financial posting.
+
+Receipt messages accept either `attachment_id` or `receipt_draft: { draft_id, version }`, separately from financial `decision`/`snapshot_id` selection. Render the receipt and allocation cards, then use the separate explicit reviewed-split confirmation route. Existing history responses add separately paginated `receipt_events`/`next_receipt_cursor` for authoritative `shared_expense_recorded` cards. See the [receipt guide](receipt-review.md) for exact payloads, acknowledgement/version requirements, fixture limitations and recovery if optional history reads fail.
+
+`read_pending_plan_risks` accepts optional `limit` (1–5, default 3) and owned plan cursor. It renders `{ type: 'pending_plan_risk', data }` using the same paginated service as Home/API, with original quote provenance, current timestamp/fingerprint, independent-plan notice and deficits separate from reserve shortfalls. The model receives only read status, IDs and assessment states; authoritative monetary values stay in the cards. An unavailable assessment is explicit and never a signal to retry an already successful financial action. Scripted prompts such as “Review my pending plan risks” exercise this path. History cards remain timestamped snapshots; request a fresh read for current risk. No automatic plan modification/cancellation occurs.
 
 Only bounded user/assistant text, intent-presence flags, owned references and small tool result summaries go to Groq. Full Home cards, ledger pages and plan/quote source text are rendered server-side, not sent back as prompt instructions. The last six text messages are included; no entire ledger is sent. Model-generated prose and private reasoning are discarded. Human explanations are server templates and financial values originate in services.
 
 - User message: max 2000 characters; strict body schemas; existing global body limit 32 KiB.
 - Model: at most four inference iterations/eight registered tool calls; max four calls in one response; model output request budget 1000 tokens, streamed response read capped at 64 KiB. Tool argument JSON is bounded and validated before dispatch.
+- Stop model inference when terminal cards or clarification are ready; the server renders the response. A plan-list card alone does not finish a current-risk request. No final prose-generation call is needed after a valid proposal or allocation card.
 - Timeout: eight seconds per provider HTTP attempt, forty-five-second orchestration signal; one modest retry for transient transport errors/429/5xx. Read tools retry a transient backend failure once. No financial write is retried by model orchestration.
 - Ledger/plans: max five records per tool page. History API: default ten/max twenty messages per page. Final cards are bounded. Tool outputs supplied to the model contain minimal status/reference summaries, not full financial records.
 - Sessions serialize turns using a ninety-second recoverable lease, without holding a database transaction during model/network calls. A concurrent in-flight request returns `AGENT_MESSAGE_IN_PROGRESS` (409), or retryable `DATABASE_BUSY` (503) during SQLite contention. After a worker crash/expired lease, retry the original key; lease ownership prevents a superseded worker from publishing duplicate output.
@@ -185,6 +203,6 @@ Same session/message key plus the same validated payload replays the original tu
 
 ## Verification and remaining integration
 
-Build/type-check/lint and local API flows were run without writing tests. The isolated demo verified ambiguity/clarification, supported comparisons, fixed and variable fee reserve guidance, unsupported purchases, missing configuration and simulated provider failure, message replay/conflict, history pagination, session-scoped IDs, unchanged financial state during chat, and frontend Save's re-preview/stale/acknowledgement checks. Real Groq is unverified without server credentials.
+Build/type-check/lint and local API flows were run without writing a test suite. The isolated demo verified ambiguity/clarification, supported comparisons, fixed and variable fee reserve guidance, unsupported purchases, missing configuration and simulated provider failure, message replay/conflict, history pagination, session-scoped IDs, unchanged financial state during chat, and frontend Save's re-preview/stale/acknowledgement checks. Later [real Groq observations](groq-verification.md) record actual selected tools, initial failures, corrections and remaining integration limits; scripted verification is not counted as model verification.
 
 Steve still needs to supply a real Compare adapter with agreed objective/funding mapping, fee/net-received semantics, fixed-fee assertions, ranking and quote freshness/expiry. Current fixtures are only the exact examples above. Tze Loon needs to render typed cards/badges, collect structured clarification, keep message/Save retry keys stable, handle stale previews and provide the explicit Save button. No frontend, real transaction execution, live pricing, production authentication or tests are included. Complex/multilingual natural-language interpretation should use the structured decision fields until a broader validated extraction layer is added.

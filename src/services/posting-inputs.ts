@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sharedExpensePostingSchema } from './shared-expense-inputs.js';
 import {
   accountIdSchema, badgeSchema, moneySchema, positiveMoneySchema, snapshotSchema,
 } from '../domain/validation.js';
@@ -53,7 +54,7 @@ export const settlementSchema = z.object({
 }).strict();
 
 export const postingSchema = z.discriminatedUnion('kind', [
-  incomeSchema, exchangeSchema, atmSchema, settlementSchema,
+  incomeSchema, exchangeSchema, atmSchema, settlementSchema, sharedExpensePostingSchema,
 ]);
 export type IncomeInput = z.infer<typeof incomeSchema>;
 export type ExchangeInput = z.infer<typeof exchangeSchema>;

@@ -5,12 +5,12 @@ import { deriveBadge, financialValue, readBadge } from '../domain/provenance.js'
 import { safeNumber } from '../domain/validation.js';
 import type { Currency } from '../shared/models.js';
 import { budgetAmounts, budgetResponse } from './budget.js';
-import type { LedgerService } from './ledger.js';
+import type { FinancialSnapshot, LedgerService } from './ledger.js';
 import type { ExchangeInput, AtmInput } from './posting-inputs.js';
 import type { Selection } from './plan-inputs.js';
 
 interface PreviewContext {
-  stage: 'save' | 'completion';
+  stage: 'save' | 'completion' | 'reassessment';
   binding: unknown;
   feeBehavior?: Selection['context']['fee_behavior'];
 }
@@ -18,8 +18,11 @@ interface PreviewContext {
 /** Uses the ledger's exact validation/projection and the same reserve arithmetic as Home. */
 export async function assessActivity(
   tx: Prisma.TransactionClient, ledger: LedgerService, activity: ExchangeInput | AtmInput, context: PreviewContext,
+  snapshot?: FinancialSnapshot,
 ) {
-  const prepared = await ledger.prepareInTransaction(tx, activity);
+  const prepared = context.stage === 'reassessment'
+    ? await ledger.projectInTransaction(tx, activity, snapshot)
+    : await ledger.prepareInTransaction(tx, activity);
   const funding = prepared.changes.find(change => change.account.id === activity.source_account)!;
   const myr = prepared.accounts.find(account => account.id === 'myr_funding');
   if (!myr) throw new AppError(409, 'INCOMPLETE_PROFILE', 'MYR Funding is missing; run the seed command');
@@ -46,7 +49,7 @@ export async function assessActivity(
     } : null,
   };
   const checkToken = payloadHash(checkInputs);
-  const fixedMyrFees = context.stage === 'save' && activity.source_account === 'myr_funding'
+  const fixedMyrFees = context.stage !== 'completion' && activity.source_account === 'myr_funding'
     && activity.principal.currency === 'MYR' && context.feeBehavior === 'fixed'
     && activity.fees.every(fee => fee.Money.currency === 'MYR' && fee.account_id === 'myr_funding');
   const feeTotal = fixedMyrFees ? activity.fees.reduce((sum, fee) => sum + BigInt(fee.Money.amount_minor), 0n) : 0n;
@@ -59,7 +62,7 @@ export async function assessActivity(
       : 'Fixed fees consume all safe debit, or no safe debit remains; no positive safe principal is available.',
     revised_quote_required_to_change_principal: true,
   } : {
-    status: context.stage === 'save' && activity.source_account === 'myr_funding' ? 'revised_quote_required' : 'not_applicable',
+    status: context.stage !== 'completion' && activity.source_account === 'myr_funding' ? 'revised_quote_required' : 'not_applicable',
     amount: null,
     reason: context.stage === 'completion'
       ? 'Report actual completed amounts; a completion preview does not recommend changing historical facts.'
