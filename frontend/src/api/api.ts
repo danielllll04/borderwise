@@ -21,6 +21,7 @@ export interface BorderWiseApi {
   // Agent
   agentCreateSession(): Promise<{ session_id: string }>
   agentSend(sid: string, message: string, key: string, decision?: T.AgentDecision): Promise<{ response: T.AgentResponse }>
+  agentHistory(sid: string, limit?: number, cursor?: number): Promise<{ items: { message_id: number; role: string; content: string; response: T.AgentResponse | null; created_at: string }[]; next_cursor: number | null }>
   agentProposalPreview(sid: string, pid: string): Promise<T.Assessment>
   agentProposalSave(sid: string, pid: string, key: string, token: string, ack?: { acknowledged: true; check_token: string }): Promise<T.PlanResponse>
 }
@@ -52,6 +53,7 @@ export function liveApi(base: string): BorderWiseApi {
     confirmReceipt: async () => { throw new ApiError('NOT_IMPLEMENTED', 'Receipt/split confirmation has no backend route yet') },
     agentCreateSession: () => req('POST', '/api/agent/sessions', {}),
     agentSend: (sid, message, key, decision) => req('POST', `${a(sid)}/messages`, { message, idempotency_key: key, ...(decision ? { decision } : {}) }),
+    agentHistory: (sid, limit = 10, cursor) => req('GET', `${a(sid)}/history?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`),
     agentProposalPreview: (sid, pid) => req('POST', `${a(sid)}/proposals/${pid}/preview`, {}),
     agentProposalSave: (sid, pid, key, token, ack) => req('POST', `${a(sid)}/proposals/${pid}/save`, { frontend_action: 'save_pending_plan', idempotency_key: key, preview_token: token, ...(ack ? { reserve_acknowledgement: ack } : {}) }),
   }

@@ -36,6 +36,7 @@ export function SaveFlow({ preview, save, onReduce, onDone, onClose }: {
   }
   useEffect(() => { preview().then(r => { setA(r); if (!r.requires_reserve_acknowledgement) doSave() }).catch(setErr) }, [])
   if (!a) return <Modal title="Checking your plan…" onClose={onClose}><Err e={err} />{!err && <p className="text-sm text-ink/60">Running the fee-aware budget check.</p>}{err && <Btn kind="outline" className="mt-3 w-full" onClick={onClose}>Back</Btn>}</Modal>
+  if (!a.projected_reserve_shortfall || !a.total_reserve) return <Modal title="Reserve assessment unavailable" onClose={onClose}><Err e={new Error('The backend did not provide reserve details for this plan.')} /></Modal>
   const short = a.projected_reserve_shortfall.Money.amount_minor
   const safe = a.safe_principal
   return <Modal title={t('This uses part of your reserve')} onClose={onClose}>

@@ -100,6 +100,7 @@ export function mockApi(): BorderWiseApi {
       r.debts.forEach(d => recv.push({ receivable_id: uid(), debtor: d.debtor, amount: { amount_minor: d.amount, currency: 'KRW' }, remaining: { amount_minor: d.amount, currency: 'KRW' }, snapshot: { pair: 'MYR/KRW', rate: '310', badge: b('Indicative', 'Seeded snapshot') } }))
     }),
     agentCreateSession: () => wait({ session_id: uid() }),
+    agentHistory: () => wait({ items: [], next_cursor: null }),
     agentSend: (_s, msg, _k, d) => wait(() => {
       const m = msg.replace(/,/g, '')
       const n = Number(m.match(/(\d+(?:\.\d+)?)/)?.[1] ?? 0)

@@ -53,7 +53,7 @@ export default function Home() {
         <div className="flex justify-between"><div><div className="font-bold">{p.plan.quote.provider}</div><div className="text-xs text-ink/55">{p.plan.quote.objective === 'atm_withdrawal' ? 'ATM withdrawal' : 'Exchange'}</div></div>
           <div className="text-right text-sm"><div className="font-bold">{fmt(p.plan.quote.total_debit)}</div><div className="text-ink/60">→ {fmt(p.plan.quote.net_received)}</div></div></div>
         <div className="mt-1 flex items-center gap-2"><Badge b={p.plan.quote.badge} />{p.plan.reserve_breached && <span className="rounded-full bg-amber-100 px-2 text-[11px] font-semibold text-amber-800">Reserve overridden</span>}</div>
-        <div className="mt-3 flex gap-2"><Btn className="flex-1" onClick={() => setConfirming(p)}>Confirm Completion</Btn><Btn kind="outline" onClick={async () => { await api.cancelPlan(p.plan.plan_id); bump() }}>Cancel Plan</Btn></div>
+        <div className="mt-3 flex gap-2"><Btn className="flex-1" onClick={() => setConfirming(p)}>Confirm Completion</Btn><Btn kind="outline" onClick={async () => { try { await api.cancelPlan(p.plan.plan_id); bump() } catch (e) { setErr(e) } }}>Cancel Plan</Btn></div>
       </Card>)}
       <Title>Confirmed ledger</Title>
       {Object.entries(groups).map(([id, items]) => <Card key={id} className="space-y-2">{items.map(i => <div key={i.entry.entry_id} className="border-b border-ink/5 pb-2 last:border-0 last:pb-0">
@@ -70,7 +70,7 @@ const Leg = ({ c, k, v }: { c: string; k: string; v: string }) => <li className=
 function ModalB({ plan, onClose, onDone }: { plan: PlanResponse; onClose: () => void; onDone: () => void }) {
   const { api } = useApp(), q = plan.plan.quote, atm = q.objective === 'atm_withdrawal'
   const [from, setFrom] = useState<AccountId>(q.funding_source as AccountId)
-  const [paid, setPaid] = useState(String(q.principal.amount_minor / 100)), [fee, setFee] = useState(String(q.fees.reduce((s, f) => s + f.Money.amount_minor, 0) / 100))
+  const [paid, setPaid] = useState(String(q.principal.amount_minor / (q.principal.currency === 'MYR' ? 100 : 1))), [fee, setFee] = useState(String(q.fees.reduce((s, f) => s + f.Money.amount_minor, 0) / (q.fees[0]?.Money.currency === 'MYR' ? 100 : 1)))
   const [got, setGot] = useState(String(q.net_received.amount_minor))
   const [err, setErr] = useState<any>(null), [ack, setAck] = useState<Assessment | null>(null), [key] = useState(uid), [at] = useState(new Date().toISOString())
   const cur = from === 'myr_funding' ? 'MYR' : 'KRW'

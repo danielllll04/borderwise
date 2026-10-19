@@ -60,7 +60,9 @@ function SafeFormula({ balance, reserve, planned }: { balance: FV; reserve: FV; 
 }
 
 function ReserveCard({ b, onReduce, onCancel, onOverride }: { b: Extract<Block, { k: 'reserve' }>; onReduce: () => void; onCancel: () => void; onOverride: () => void }) {
-  const { a } = b, short = a.projected_reserve_shortfall.Money.amount_minor
+  const { a } = b
+  if (!a.projected_reserve_shortfall || !a.total_reserve) return <Card className="text-sm">The backend did not provide a reserve assessment for this option.</Card>
+  const short = a.projected_reserve_shortfall.Money.amount_minor
   if (b.state !== 'open') return <Card className="text-sm">{b.state === 'saved' ? '✓ ' : ''}{b.note}</Card>
   return <div className="space-y-2"><Warn><b>This uses part of your reserve.</b> Projected balance is {fmt({ amount_minor: short, currency: 'MYR' })} below your stated reserve.</Warn>
     <SafeFormula balance={a.current_balance} reserve={a.total_reserve} planned={a.total_debit} />
@@ -86,14 +88,14 @@ function ReceiptCard({ done, onConfirm }: { done?: boolean; onConfirm: (from: Pa
 // ---------- screen ----------
 export default function Agent() {
   const { api, bump, go } = useApp()
-  const [sid, setSid] = useState(''), [text, setText] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState<any>(null), [save, setSave] = useState<{ pid: string; token: string } | null>(null)
+  const [sid, setSid] = useState(''), [text, setText] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState<unknown>(null), [save, setSave] = useState<{ pid: string; token: string } | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([mk('agent', { k: 'text', text: 'Hi! I can find the cheapest way to get cash, check your reserves and split receipts. Saving a plan never changes balances — only confirming completion does.' })])
   const end = useRef<HTMLDivElement>(null)
-  useEffect(() => { api.agentCreateSession().then(s => setSid(s.session_id)).catch(() => {}) }, [api])
+  useEffect(() => { setSid(''); setErr(null); api.agentCreateSession().then(s => setSid(s.session_id)).catch(setErr) }, [api])
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
   const push = (...m: Msg[]) => setMsgs(x => [...x, ...m])
   const patch = (id: string, f: (b: Block) => Block, only?: Block['k']) => setMsgs(x => x.map(m => m.id === id ? { ...m, blocks: m.blocks.map(b => !only || b.k === only ? f(b) : b) } : m))
-  const guard = async (f: () => Promise<void>) => { setBusy(true); setErr(null); try { await f() } catch (e) { setErr(e) } setBusy(false) }
+  const guard = async (f: () => Promise<void>) => { setBusy(true); setErr(null); try { await f() } catch (e) { setErr(e) } finally { setBusy(false) } }
 
   // Flow 1 — cash: asks for card network, then runs the shared compare + reserve logic.
   const askCash = () => push(mk('agent', { k: 'text', text: 'Which card network will you use at the ATM? I need it to compare compatible ATMs.' }, { k: 'chips', q: 'network', opts: NETWORKS }))
@@ -101,10 +103,12 @@ export default function Agent() {
     const home = await api.home(), sels = seedCompare({ objective: 'atm_withdrawal', mode: 'target', amount: 100000 }).map(o => o.selection)
     let a: Assessment | null = null; try { a = await api.previewPlan(sels[0]) } catch (e: any) { if (e.code !== 'INSUFFICIENT_FUNDS') throw e }
     const breach = !!a?.requires_reserve_acknowledgement, myr = home.balances.find(b => b.account_id === 'myr_funding')!.balance
+    if (breach && (!a?.projected_reserve_shortfall || !a.total_reserve)) throw new Error('The backend did not provide reserve details for this option.')
+    const breachAssessment = breach ? a : null
     const steps: Step[] = [
       { label: 'Checked balances', ok: true, detail: `MYR Funding ${fmt(myr.Money)} (${myr.badge.status})` },
       { label: 'Compared ATM options', ok: true, detail: `${sels.length} simulated ${network} ATM options, ranked by lowest total MYR debit` },
-      { label: breach ? 'Found reserve breach' : 'Reserve check passed', ok: !breach, detail: breach ? `Top option projects ${fmt(a!.projected_reserve_shortfall.Money)} below your stated reserve` : 'Top option stays above your stated reserves' }]
+      { label: breach ? 'Found reserve breach' : 'Reserve check passed', ok: !breach, detail: breachAssessment ? `Top option projects ${fmt(breachAssessment.projected_reserve_shortfall!.Money)} below your stated reserve` : 'Top option stays above your stated reserves' }]
     if (breach) steps.push({ label: 'Calculated safe amount', ok: true, detail: `MaxSafeTotalDebit = ${fmt(home.budget.max_safe_total_debit.Money)}` })
     push(mk('agent', { k: 'text', text: `Here is the cheapest way to get ₩100,000 cash with ${network}. Simulated fixtures — not live quotes.` }, { k: 'trace', steps }, { k: 'options', sels }))
   })
@@ -117,6 +121,7 @@ export default function Agent() {
     const set = (state: 'saved' | 'cancelled', note: string) => patch(id, b => ({ ...(b as any), state, note }), 'reserve')
     if (how === 'cancel') return set('cancelled', 'Plan cancelled. Nothing was saved.')
     if (how === 'override') { await api.savePlan(sel, uid(), { acknowledged: true, check_token: a.check_token }); bump(); return set('saved', 'Saved with reserve override and flagged as breached. Balances unchanged.') }
+    if (!a.total_reserve) throw new Error('The backend did not provide a reserve amount for this option.')
     const maxSafe = Math.max(0, a.current_balance.Money.amount_minor - a.total_reserve.Money.amount_minor) // MaxSafeTotalDebit
     const next = seedCompare({ objective: 'atm_withdrawal', mode: 'budget', amount: maxSafe }).find(o => o.selection.quote.provider === sel.quote.provider)!.selection
     await api.savePlan(next, uid()); bump()
@@ -155,7 +160,11 @@ export default function Agent() {
     if (t === STARTERS[0]) return askCash()
     if (t === STARTERS[1]) return push(mk('agent', { k: 'text', text: 'I read the receipt (simulated OCR). Please review the allocation before I record anything.' }, { k: 'receipt' }))
     if (t === STARTERS[2]) return runBudget()
-    guard(async () => { const { response } = await api.agentSend(sid, t, uid()); push(mk('agent', { k: 'text', text: response.explanation }, { k: 'cards', cards: response.cards, res: response })) })
+    guard(async () => {
+      if (!sid) throw new Error('Agent session is not ready yet. Please try again.')
+      const { response } = await api.agentSend(sid, t, uid())
+      push(mk('agent', { k: 'text', text: response.explanation || 'The Agent returned no explanation.' }, { k: 'cards', cards: response.cards, res: response }))
+    })
   }
   const startSave = (pid: string) => guard(async () => { const pv = await api.agentProposalPreview(sid, pid); setSave({ pid, token: pv.check_token }) })
 
@@ -168,7 +177,13 @@ export default function Agent() {
       case 'reserve': return <ReserveCard key={i} b={b} onReduce={() => resolve(m.id, b.sel, b.a, 'reduce')} onCancel={() => resolve(m.id, b.sel, b.a, 'cancel')} onOverride={() => resolve(m.id, b.sel, b.a, 'override')} />
       case 'safe': return <div key={i} className="space-y-2"><HomeSummary h={b.h} /><SafeFormula balance={b.h.balances.find(x => x.account_id === 'myr_funding')!.balance} reserve={b.h.budget.total_reserve} /></div>
       case 'receipt': return <ReceiptCard key={i} done={b.done} onConfirm={(f, sh) => confirmReceipt(m.id, f, sh)} />
-      case 'cards': return <div key={i} className="space-y-2">{b.cards.map((c, k) => c.type === 'balance_summary' ? <HomeSummary key={k} h={c.data} /> : c.type === 'quote_comparison' ? <div key={k} className="space-y-2">{c.options.map(o => <ComparisonCard key={o.snapshot_id} sel={o.selection} rank={o.rank} primary={o.selection.quote.objective === 'atm_withdrawal' ? 'debit' : 'net'} blocked={o.blocking_error} onSave={() => startSave(o.snapshot_id)} />)}</div> : c.type === 'comparison_unavailable' ? <Card key={k} className="text-sm">{c.reason}</Card> : null)}</div>
+      case 'cards': return <div key={i} className="space-y-2">{b.cards.map((c, k) => {
+        if (c.type === 'balance_summary') return <HomeSummary key={k} h={c.data} />
+        if (c.type === 'quote_comparison') return <div key={k} className="space-y-2">{c.options.map(o => <ComparisonCard key={o.snapshot_id} sel={o.selection} rank={o.rank} primary={o.selection.quote.objective === 'atm_withdrawal' ? 'debit' : 'net'} blocked={o.blocking_error} onSave={() => startSave(o.snapshot_id)} />)}<p className="text-[11px] text-ink/50">{c.source === 'simulated_fixture' ? 'Simulated fixture data — not live market quotes.' : c.ranking}</p></div>
+        if (c.type === 'comparison_unavailable') return <Card key={k} className="text-sm">{c.reason}</Card>
+        if (c.type === 'reserve_warning') return <Card key={k} className="text-sm"><Warn>Reserve warning requires review before saving this proposal.</Warn></Card>
+        return <Card key={k} className="text-sm text-ink/60">This Agent card type ({c.type}) is not displayed in this frontend yet.</Card>
+      })}</div>
     }
   }
   return <div className="flex h-full flex-col">
