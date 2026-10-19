@@ -14,6 +14,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "db:generate": "prisma generate",
+    "db:supabase:generate": "tsx scripts/prepare-supabase-schema.ts && prisma generate --schema prisma/supabase/schema.prisma",
+    "db:supabase:migrate": "tsx scripts/supabase-database.ts migrate",
+    "db:supabase:copy": "tsx scripts/supabase-database.ts copy",
+    "db:supabase:check": "tsx scripts/supabase-database.ts check",
     "predb:migrate": "tsx scripts/prepare-sqlite.ts",
     "db:migrate": "prisma migrate deploy",
     "predb:migrate:dev": "tsx scripts/prepare-sqlite.ts",
@@ -24,7 +28,7 @@
     "demo:agent": "tsx scripts/demo-agent.ts",
     "demo:split": "tsx scripts/demo-shared-expense.ts",
     "receipts:cleanup": "tsx scripts/cleanup-receipts.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate && npm run db:supabase:generate"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

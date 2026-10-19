@@ -2,11 +2,11 @@
 
 **Status:** P1 (Home/Money & Ledger), P3 (plans/reserve warnings/completion), and P5 (Agent backend) are implemented. Limited **real Groq smoke checks** have run against isolated seeded data; see [observed results and limitations](docs/groq-verification.md). Compare uses **simulated fixtures**. Authentication and card purchases remain **unsupported**.
 
-Home (Priority 1), pending plans/reserve warnings/completion (Priority 3), and a read/preview Agent (Priority 5) for international students. The current demo implements MYR/KRW and three owned accounts. Built with TypeScript, Fastify 5, Prisma 6 and persistent SQLite. **Authentication is not implemented.** All APIs use the single seeded `demo-profile`; keep the default loopback host. Session/profile ownership checks are local demo boundaries, not production user isolation.
+Home (Priority 1), pending plans/reserve warnings/completion (Priority 3), and a read/preview Agent (Priority 5) for international students. The current demo implements MYR/KRW and three owned accounts. Built with TypeScript, Fastify 5 and Prisma 6, with SQLite locally or explicitly configured Supabase PostgreSQL. **Authentication is not implemented.** All APIs use the single seeded `demo-profile`; keep the default loopback host. Session/profile ownership checks are local demo boundaries, not production user isolation.
 
 BorderWise records user-reported activity completed elsewhere. It never executes transfers, exchanges, card payments or ATM withdrawals. Seed data and quote fixtures are **Simulated**; completion amounts supplied through the plan API are labelled **User-Confirmed**. The Agent uses an optional Groq tool-calling adapter and cannot save/confirm/cancel plans, post a ledger entry or change a profile/reserve through chat. This branch has no connected frontend, Split UI, live OCR, bank connections or live market integrations. Card purchase plans remain unsupported until a purchase ledger type is agreed.
 
-Remote team work is preserved: Steve's `schemas.py`, `seed_data.py` and `steve_calculator.py` provide Python schema/calculator work, while `feature/borderwise-frontend` contains separate frontend work. These are not connected to the TypeScript Agent adapters. The Agent still uses its explicitly Simulated fixtures; Python and TypeScript contract alignment remains integration work, not an implemented engine replacement.
+Remote team work is preserved: Steve's Python schemas/calculator and the `main.py`, `steve_router.py` and `steve_splitter.py` entrypoint/router/split modules remain intact, while `feature/borderwise-frontend` contains separate frontend work. These are not connected to the TypeScript Agent adapters. The Agent still uses its explicitly Simulated fixtures; Python and TypeScript contract alignment remains integration work, not an implemented engine replacement.
 
 **Priority 3 handoff:** [plan API guide and examples](docs/priority-3.md). It covers preview → acknowledge → save, revised quotes, actual completion, cancellation, stale checks and idempotency.
 
@@ -22,9 +22,13 @@ Remote team work is preserved: Steve's `schemas.py`, `seed_data.py` and `steve_c
 
 **Dependency audit:** [per-package findings, compatible fixes and remaining exposure](docs/dependency-audit.md). Matched Prisma/client 6.19.3 and TypeScript ESLint 8.71.2 reduce the full audit from 13 to 3 high package findings. The remaining entries share the deepmerge-ts advisory through Prisma's config loader; audit still fails and a reviewed Prisma major migration remains recommended.
 
+**Online database:** [Supabase setup, private-schema migration, exact SQLite copy and rollback](docs/supabase.md). The configured local installation now uses a verified Supabase copy (34 records across 23 model tables); its original SQLite file is preserved. Fresh checkouts default to SQLite until explicitly configured. Credentials/provider selection are private local configuration. The guide records online verification, storage boundaries and rollback limits.
+
 ## Setup (PowerShell)
 
 Requires Node.js 22.14+ and npm. From this directory:
+
+The seed sequence below is for a fresh SQLite demo. If this installation already uses the imported Supabase database, follow the [Supabase guide](docs/supabase.md) and do not reseed or repeat the data-copy command.
 
 ```powershell
 if (!(Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }

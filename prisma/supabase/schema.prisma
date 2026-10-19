@@ -1,0 +1,410 @@
+// Generated from prisma/schema.prisma by npm run db:supabase:generate.
+generator client {
+  provider = "prisma-client-js"
+  output = "../../node_modules/.prisma/borderwise-supabase"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas = ["borderwise"]
+  url      = env("SUPABASE_DATABASE_URL")
+}
+
+model Profile {
+  id                    String   @id
+  displayName           String
+  homeCurrency          String   @default("MYR")
+  destinationCurrency   String   @default("KRW")
+  fixedReserveMinor     BigInt
+  emergencyReserveMinor BigInt
+  fixedReserveBadgeJson String
+  emergencyBadgeJson    String
+  updatedAt             DateTime @updatedAt
+  accounts              Account[]
+  activities            Activity[]
+  entries               LedgerEntry[]
+  receivables           Receivable[]
+  plans                 PlanRecord[]
+  agentSessions         AgentSession[]
+  sharedExpenses        SharedExpense[]
+
+  @@schema("borderwise")
+}
+
+model Account {
+  id                    String   @id
+  profileId             String
+  profile               Profile  @relation(fields: [profileId], references: [id])
+  displayName           String
+  currency              String
+  balanceMinor          BigInt   @default(0)
+  balanceBadgeJson      String
+  balanceProvenanceJson String
+  lines                 LedgerLine[]
+  sharedExpenses        SharedExpense[]
+
+  @@schema("borderwise")
+}
+
+// Each activity groups principal movements, fee entries, actual inputs and provenance.
+model Activity {
+  id                  String   @id
+  profileId           String
+  profile             Profile  @relation(fields: [profileId], references: [id])
+  kind                String
+  idempotencyKey      String   @unique
+  payloadHash         String
+  inputJson           String
+  inputProvenanceJson String
+  resultJson          String
+  createdAt           DateTime @default(now())
+  entries             LedgerEntry[]
+  settlement          Settlement?
+  completedPlan       PlanRecord?
+  sharedExpense       SharedExpense?
+
+  @@schema("borderwise")
+}
+
+model LedgerEntry {
+  id         String   @id
+  profileId  String
+  profile    Profile  @relation(fields: [profileId], references: [id])
+  activityId String
+  activity   Activity @relation(fields: [activityId], references: [id])
+  type       String
+  badgeJson  String
+  createdAt  DateTime @default(now())
+  lines      LedgerLine[]
+  sharedExpense SharedExpense?
+
+  @@index([profileId, createdAt, id])
+  @@index([activityId])
+
+  @@schema("borderwise")
+}
+
+model LedgerLine {
+  id          String      @id
+  entryId     String
+  entry       LedgerEntry @relation(fields: [entryId], references: [id])
+  accountId   String
+  account     Account     @relation(fields: [accountId], references: [id])
+  amountMinor BigInt
+  currency    String
+
+  @@index([entryId])
+
+  @@schema("borderwise")
+}
+
+model Receivable {
+  id                 String   @id
+  profileId          String
+  profile            Profile  @relation(fields: [profileId], references: [id])
+  debtor             String
+  originalAmountMinor BigInt
+  currency           String
+  snapshotJson       String
+  amountBadgeJson    String
+  settledMinor       BigInt   @default(0)
+  settlements        Settlement[]
+  sharedAllocation   SharedExpenseAllocation?
+
+  @@schema("borderwise")
+}
+
+// Proposed confirmed Split handover. Allocations are not additional account lines.
+model SharedExpense {
+  id                String   @id
+  profileId         String
+  profile           Profile  @relation(fields: [profileId], references: [id])
+  splitId           String
+  receiptId         String
+  activityId        String   @unique
+  activity          Activity @relation(fields: [activityId], references: [id])
+  ledgerEntryId     String   @unique
+  ledgerEntry       LedgerEntry @relation(fields: [ledgerEntryId], references: [id])
+  payerId           String
+  paidFromAccount   String
+  paidAccount       Account @relation(fields: [paidFromAccount], references: [id])
+  currency          String
+  billTotalMinor    BigInt
+  payerShareMinor   BigInt
+  paidAt            DateTime
+  createdAt         DateTime @default(now())
+  allocations       SharedExpenseAllocation[]
+
+  @@unique([profileId, splitId])
+  @@unique([profileId, receiptId])
+
+  @@schema("borderwise")
+}
+
+model SharedExpenseAllocation {
+  id               String @id
+  sharedExpenseId  String
+  sharedExpense    SharedExpense @relation(fields: [sharedExpenseId], references: [id])
+  participantId    String
+  shareMinor       BigInt
+  receivableId     String @unique
+  receivable       Receivable @relation(fields: [receivableId], references: [id])
+
+  @@unique([sharedExpenseId, participantId])
+
+  @@schema("borderwise")
+}
+
+model Settlement {
+  id                   String     @id
+  activityId           String     @unique
+  activity             Activity   @relation(fields: [activityId], references: [id])
+  receivableId         String
+  receivable           Receivable @relation(fields: [receivableId], references: [id])
+  clearingMinor        BigInt
+  clearingCurrency     String
+  receivedMinor        BigInt
+  receivedCurrency     String
+  receivingAccountId   String
+  createdAt            DateTime   @default(now())
+
+  @@schema("borderwise")
+}
+
+// Internal workflow persistence. The shared Plan remains unchanged.
+model PlanRecord {
+  id                    String    @id
+  profileId             String
+  profile               Profile   @relation(fields: [profileId], references: [id])
+  quoteJson             String
+  contextJson           String
+  status                String    @default("pending")
+  reserveBreached       Boolean
+  saveCheckJson         String
+  saveAcknowledgementJson String?
+  completionCheckJson   String?
+  completionAcknowledgementJson String?
+  completionJson        String?
+  completionActivityId  String?   @unique
+  completionActivity    Activity? @relation(fields: [completionActivityId], references: [id], onDelete: Restrict)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  cancelledAt           DateTime?
+
+  @@index([profileId, status, createdAt, id])
+  @@index([profileId, createdAt, id])
+
+  @@schema("borderwise")
+}
+
+model WorkflowRequest {
+  operation      String
+  idempotencyKey String
+  payloadHash    String
+  resultJson     String
+  createdAt      DateTime @default(now())
+
+  @@id([operation, idempotencyKey])
+
+  @@schema("borderwise")
+}
+
+model AgentSession {
+  id               String   @id
+  profileId        String
+  profile          Profile  @relation(fields: [profileId], references: [id])
+  decisionJson     String   @default("{}")
+  activeProposalId String?
+  processingTurnId String?
+  leaseExpiresAt   DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  turns            AgentTurn[]
+  messages         AgentMessage[]
+  quotes           AgentQuoteSnapshot[]
+  proposals        AgentProposal[]
+  receiptAttachments ReceiptAttachment[]
+  receiptDrafts      ReceiptDraft[]
+  receiptRequests    ReceiptConfirmationRequest[]
+
+  @@schema("borderwise")
+}
+
+model ReceiptAttachment {
+  id            String @id
+  sessionId     String
+  session       AgentSession @relation(fields: [sessionId], references: [id])
+  storageKey    String @unique
+  sha256        String
+  contentType   String
+  byteSize      Int
+  width         Int
+  height        Int
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  purgedAt      DateTime?
+  draft         ReceiptDraft?
+  @@index([sessionId, createdAt])
+
+  @@schema("borderwise")
+}
+
+model ReceiptDraft {
+  id            String @id
+  sessionId     String
+  session       AgentSession @relation(fields: [sessionId], references: [id])
+  attachmentId  String @unique
+  attachment    ReceiptAttachment @relation(fields: [attachmentId], references: [id])
+  receiptId     String
+  extractedJson String
+  currentVersion Int @default(1)
+  confirmedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  versions      ReceiptDraftVersion[]
+  proposals     ReceiptSplitProposal[]
+  @@index([sessionId, createdAt])
+
+  @@schema("borderwise")
+}
+
+model ReceiptDraftVersion {
+  draftId       String
+  draft         ReceiptDraft @relation(fields: [draftId], references: [id])
+  version       Int
+  receiptJson   String
+  correctionsBadgeJson String?
+  assignmentsJson String?
+  origin        String
+  createdAt     DateTime @default(now())
+  @@id([draftId, version])
+
+  @@schema("borderwise")
+}
+
+model ReceiptSplitProposal {
+  id            String @id
+  draftId       String
+  draft         ReceiptDraft @relation(fields: [draftId], references: [id])
+  version       Int
+  bindingHash   String
+  allocationJson String
+  postingInputJson String
+  resultJson    String?
+  confirmedAt   DateTime?
+  createdAt     DateTime @default(now())
+  requests      ReceiptConfirmationRequest[]
+  @@index([draftId, version])
+  @@index([confirmedAt, id])
+
+  @@schema("borderwise")
+}
+
+model ReceiptConfirmationRequest {
+  sessionId     String
+  session       AgentSession @relation(fields: [sessionId], references: [id])
+  idempotencyKey String
+  payloadHash   String
+  proposalId    String
+  proposal      ReceiptSplitProposal @relation(fields: [proposalId], references: [id])
+  resultJson    String
+  createdAt     DateTime @default(now())
+  @@id([sessionId, idempotencyKey])
+
+  @@schema("borderwise")
+}
+
+model AgentTurn {
+  id             String       @id
+  sessionId      String
+  session        AgentSession @relation(fields: [sessionId], references: [id])
+  idempotencyKey String
+  payloadHash    String
+  requestJson    String
+  status         String       @default("processing")
+  leaseOwner     String
+  responseJson   String?
+  httpStatus     Int?
+  createdAt      DateTime     @default(now())
+  completedAt    DateTime?
+  messages       AgentMessage[]
+  executions     AgentToolExecution[]
+
+  @@unique([sessionId, idempotencyKey])
+
+  @@schema("borderwise")
+}
+
+model AgentMessage {
+  id             Int          @id @default(autoincrement())
+  sessionId      String
+  session        AgentSession @relation(fields: [sessionId], references: [id])
+  turnId         String
+  turn           AgentTurn    @relation(fields: [turnId], references: [id])
+  role           String
+  content        String
+  responseJson   String?
+  referencesJson String
+  createdAt      DateTime     @default(now())
+
+  @@unique([turnId, role])
+  @@index([sessionId, id])
+
+  @@schema("borderwise")
+}
+
+model AgentQuoteSnapshot {
+  id              String       @id
+  sessionId       String
+  session         AgentSession @relation(fields: [sessionId], references: [id])
+  quoteId         String
+  selectionJson   String
+  assumptionsJson String
+  createdAt       DateTime     @default(now())
+  proposals       AgentProposal[]
+
+  @@index([sessionId, quoteId])
+
+  @@schema("borderwise")
+}
+
+model AgentProposal {
+  id              String             @id
+  sessionId       String
+  session         AgentSession       @relation(fields: [sessionId], references: [id])
+  snapshotId      String
+  snapshot        AgentQuoteSnapshot @relation(fields: [snapshotId], references: [id])
+  previewJson     String
+  contextToken    String
+  createdAt       DateTime           @default(now())
+  previews        AgentProposalPreview[]
+
+  @@index([sessionId, snapshotId, contextToken])
+
+  @@schema("borderwise")
+}
+
+model AgentProposalPreview {
+  proposalId String
+  proposal   AgentProposal @relation(fields: [proposalId], references: [id])
+  token      String
+  createdAt  DateTime @default(now())
+
+  @@id([proposalId, token])
+
+  @@schema("borderwise")
+}
+
+model AgentToolExecution {
+  id          String    @id
+  turnId      String
+  turn        AgentTurn @relation(fields: [turnId], references: [id])
+  toolName    String
+  argsJson    String
+  outcome     String
+  summaryJson String
+  durationMs  Int
+  createdAt   DateTime  @default(now())
+
+  @@schema("borderwise")
+}
