@@ -85,7 +85,7 @@ function ReceiptCard({ done, onConfirm }: { done?: boolean; onConfirm: (from: Pa
 
 // ---------- screen ----------
 export default function Agent() {
-  const { api, bump, go } = useApp()
+  const { api, bump, go, setLang } = useApp()
   const [sid, setSid] = useState(''), [text, setText] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState<any>(null), [save, setSave] = useState<{ pid: string; token: string } | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([mk('agent', { k: 'text', text: 'Hi! I can find the cheapest way to get cash, check your reserves and split receipts. Saving a plan never changes balances — only confirming completion does.' })])
   const end = useRef<HTMLDivElement>(null)
@@ -152,6 +152,7 @@ export default function Agent() {
   }
   const send = (t: string) => {
     if (busy) return; setText(''); push(mk('user', { k: 'text', text: t }))
+    if (/[\u4e00-\u9fa5]/.test(t)) setLang('zh')
     if (t === STARTERS[0]) return askCash()
     if (t === STARTERS[1]) return push(mk('agent', { k: 'text', text: 'I read the receipt (simulated OCR). Please review the allocation before I record anything.' }, { k: 'receipt' }))
     if (t === STARTERS[2]) return runBudget()

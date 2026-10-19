@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { User, CheckCircle2, Lock, BarChart3, CircleDot, AlertTriangle, X } from 'lucide-react'
 import type { Badge as B, Money, FV } from '@/api/types'
+import { useApp } from './ctx'
 
 export const fmt = (m: Money, signed = false) => {
   const n = m.amount_minor, abs = Math.abs(n), sign = n < 0 ? '−' : signed && n > 0 ? '+' : ''
@@ -17,9 +18,10 @@ const S: Record<B['status'], [string, string, any]> = {
 }
 /** Data Traceability Standard: status + source + timestamp on every figure. */
 export function Badge({ b, meta = true }: { b: B; meta?: boolean }) {
+  const { t } = useApp()
   const [cls, , Icon] = S[b.status]
   return <span className="inline-flex flex-col items-start gap-0.5 align-middle">
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}><Icon size={11} />{b.status}</span>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}><Icon size={11} />{t(b.status)}</span>
     {meta && <span className="text-[10px] leading-tight text-ink/50">{b.source ? b.source + ' · ' : ''}{stamp(b.timestamp)}</span>}
   </span>
 }

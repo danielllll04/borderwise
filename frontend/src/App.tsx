@@ -18,7 +18,7 @@ export default function App() {
   const [tab, setTab] = useState('agent'), [rev, setRev] = useState(0), [lang, setLang] = useState<Lang>('en'), useMock = env.VITE_USE_MOCK !== 'false'
   const api = useMemo(() => (useMock ? mockApi() : liveApi(BASE)), [useMock])
   const Screen = TABS.find(t => t[0] === tab)![3]
-  return <Ctx.Provider value={{ api, rev, bump: () => setRev(r => r + 1), go: setTab, lang, t: makeT(lang) }}>
+  return <Ctx.Provider value={{ api, rev, bump: () => setRev(r => r + 1), go: setTab, lang, setLang, t: makeT(lang) }}>
     <div className="mx-auto flex h-[100dvh] max-w-[430px] flex-col bg-canvas sm:border-x sm:border-ink/10">
       <div className="flex items-center justify-between px-4 pt-3 text-[11px]"><b className="text-base font-extrabold text-coral">Border<span className="text-cobalt">Wise</span></b>
         <div className="flex rounded-full bg-ink/5 p-0.5 font-semibold" role="group" aria-label="Language">{(['en', 'zh'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} aria-pressed={lang === l} className={`min-h-[44px] rounded-full px-3 ${lang === l ? 'bg-white shadow text-ink' : 'text-ink/50'}`}>{l === 'en' ? 'English' : '中文'}</button>)}</div></div>

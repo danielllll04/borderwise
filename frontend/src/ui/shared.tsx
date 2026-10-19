@@ -8,12 +8,12 @@ import { useApp } from './ctx'
 export function ComparisonCard({ sel, rank, primary, onSave, blocked, saveLabel = 'Select & Save as Plan' }: { sel: Selection; rank: number; primary: 'net' | 'debit'; onSave?: () => void; blocked?: string | null; saveLabel?: string }) {
   const { t } = useApp(), q = sel.quote
   return <Card className={rank === 1 ? 'ring-2 ring-cobalt/40' : ''}>
-    <div className="flex items-start justify-between"><div><div className="text-[11px] font-bold uppercase text-cobalt">{rank === 1 ? 'Top ranked' : `Option ${rank}`}</div><div className="text-base font-extrabold">{q.provider}</div></div>
+    <div className="flex items-start justify-between"><div><div className="text-[11px] font-bold uppercase text-cobalt">{rank === 1 ? t('Top ranked') : `${t('Option')} ${rank}`}</div><div className="text-base font-extrabold">{q.provider}</div></div>
       <div className="text-right"><div className="text-[11px] text-ink/55">{t(primary === 'net' ? 'Net proceeds' : 'Total debit')}</div><div className="text-xl font-extrabold">{fmt(primary === 'net' ? q.net_received : q.total_debit)}</div></div></div>
     <dl className="mt-3 space-y-1 text-sm">
       <Row k={t("Exchange rate")} v={`RM 1 = ₩ ${q.rate}`} />
-      {q.fees.map(f => <Row key={f.label} k={f.label} v={fmt(f.Money)} />)}
-      <Row k={primary === 'net' ? 'Total debit' : 'Net proceeds'} v={fmt(primary === 'net' ? q.total_debit : q.net_received)} />
+      {q.fees.map(f => <Row key={f.label} k={t(f.label)} v={fmt(f.Money)} />)}
+      <Row k={t(primary === 'net' ? 'Total debit' : 'Net proceeds')} v={fmt(primary === 'net' ? q.total_debit : q.net_received)} />
     </dl>
     <div className="mt-3 flex items-end justify-between gap-2"><Badge b={q.badge} />{blocked && <span className="text-xs text-red-600">{blocked}</span>}</div>
     {onSave && <Btn className="mt-3 w-full" onClick={onSave} disabled={!!blocked}>{t(saveLabel)}</Btn>}

@@ -12,8 +12,16 @@ const ZH: Record<string, string> = {
   'Reported MYR balance': '申报的马币余额', 'Stated protected reserves': '设定的保护储备', 'Projected balance after plan': '计划后预计余额',
   'Split expenses': '分摊开销', 'Owed to you': '欠你的钱', 'Mark as Settled': '标记为已结清', 'Settle debt': '结清欠款', 'Confirm settlement': '确认结清',
   'Type a message…': '输入消息…', 'Check my budget': '查看我的预算',
-  'ATM Links & FX Alerts': 'ATM链接与汇率提醒', 'Nearby ATMs': '附近ATM', 'Open in Naver Map': '用Naver地图打开', 'Open in Kakao Map': '用Kakao地图打开',
+  'ATM Links & FX Alerts': 'ATM链接与汇率提醒', 'Nearby ATMs': '附近ATM', 'Open in Naver Map': '在 Naver 地图中打开', 'Open in Kakao Map': '在 Kakao 地图中打开',
+  'User-Entered': '用户录入', 'User-Confirmed': '用户已确认', Simulated: '模拟数据', Indicative: '参考汇率',
+  'Operator fee': 'ATM 手续费', 'Global ATM': '全球 ATM', away: '米',
+  'Local ATM Operator Fee': 'ATM 手续费', 'Home Bank Overseas ATM Fee': '发卡银行境外 ATM 手续费',
   'Target-rate alert': '目标汇率提醒', 'Review Options': '查看选项', 'Current rate': '当前汇率', 'Target rate': '目标汇率', 'Last 7 days': '近7天',
 }
-export const makeT = (lang: Lang) => (s: string) => (lang === 'zh' ? ZH[s] ?? s : s)
+export const makeT = (lang: Lang) => (s: string) => {
+  if (lang !== 'zh') return s
+  if (ZH[s]) return ZH[s]
+  if (s.startsWith('Local ATM Operator Fee')) return `${ZH['Operator fee']} ${s.slice('Local ATM Operator Fee'.length).trim()}`
+  return s
+}
 export const ZH_KEYS = Object.keys(ZH)
