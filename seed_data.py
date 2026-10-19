@@ -85,16 +85,36 @@ CARD_PROVIDERS = [
 ATM_PROVIDERS = [
     {
         "objective": "withdraw_atm_cash",
+        "provider": "KB Kookmin Bank Global ATM (Hongdae Branch)",
+        "rate": 312.00,
+        "home_bank_fee_sen": 1200,
+        "local_atm_fee_krw": 3500,
+        "funding_source": "MYR_BANK",
+        "bank_name": "KB Kookmin Bank",
+        "location_name": "Hongdae Branch",
+        "distance_meters": 120,
+        "supported_networks": ["Visa", "Mastercard", "Plus"],
+        "map_url": "https://map.naver.com/p/search/KB%20Kookmin%20Bank%20Hongdae",
+        "kakao_map_url": "https://map.kakao.com/link/search/KB%20Kookmin%20Bank%20Hongdae",
+        "withdrawal_guide": (
+            "Select 'Foreign Language' -> 'English/Chinese' -> 'Foreign Card' -> 'Withdrawal'. "
+            "Always choose KRW (decline DCC)."
+        ),
+        "badge": _badge("Simulated", "Sample Korean ATM Dataset"),
+    },
+    {
+        "objective": "withdraw_atm_cash",
         "provider": "Shinhan Bank Global ATM (Hongdae Exit 9)",
         "rate": 311.50,
         "home_bank_fee_sen": 1200,
-        "local_atm_fee_krw": 0,
+        "local_atm_fee_krw": 3500,
         "funding_source": "MYR_BANK",
         "bank_name": "Shinhan Bank",
         "location_name": "Hongdae Exit 9",
         "distance_meters": 350,
         "supported_networks": ["UnionPay", "Visa", "Mastercard"],
         "map_url": "https://map.naver.com/p/search/Shinhan%20Bank%20Hongdae",
+        "kakao_map_url": "https://map.kakao.com/link/search/Shinhan%20Bank%20Hongdae",
         "withdrawal_guide": (
             "Tap 'Foreign Language' -> 'Foreign Card' -> 'Withdrawal'. "
             "Decline DCC conversion."
@@ -113,6 +133,7 @@ ATM_PROVIDERS = [
         "distance_meters": 220,
         "supported_networks": ["UnionPay", "Visa", "Plus"],
         "map_url": "https://map.naver.com/p/search/Woori%20Bank%20Sinchon",
+        "kakao_map_url": "https://map.kakao.com/link/search/Woori%20Bank%20Sinchon",
         "withdrawal_guide": (
             "Select 'Global ATM' button on the right screen before inserting card."
         ),
@@ -130,8 +151,9 @@ ATM_PROVIDERS = [
         "distance_meters": 60,
         "supported_networks": ["Visa", "Mastercard"],
         "map_url": "https://map.naver.com/p/search/CU%20Hongdae",
+        "kakao_map_url": "https://map.kakao.com/link/search/CU%20Hongdae",
         "withdrawal_guide": (
-            "Convenient 24/7 inside store, but carries highest local operator fee."
+            "Convenient 24/7 inside store, but carries highest local operator surcharge."
         ),
         "badge": _badge("Simulated", "Sample Korean ATM Dataset"),
     },

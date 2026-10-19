@@ -14,17 +14,49 @@ const questions: Record<ClarificationField, string> = {
   card_network: 'Which card network will you use at the ATM (for example Visa or Mastercard)? If you do not know, say unknown; compatibility will remain unknown.',
 };
 
+const chineseQuestions: Record<ClarificationField, string> = {
+  objective: '您想换汇到已有账户，还是提取现金？',
+  amount: '您需要多少金额？请说明支持的货币。',
+  currency: '您指的是哪一种支持的货币？',
+  funding_account: '请问使用哪个已有账户付款：马币资金账户，还是韩元卡？',
+  amount_basis: '这是本金、包含手续费的总预算，还是目标到账金额？',
+  destination_account: '换汇后的资金应转入马币资金账户、韩元卡还是韩元现金？',
+  card_network: '您会在 ATM 使用哪种卡组织（例如 Visa 或 Mastercard）？如果不确定，请说“不知道”；兼容性将保持未知。',
+};
+
+export function isChineseText(text: string): boolean {
+  return /[\u4e00-\u9fff]/u.test(text);
+}
+
+function scaledMajorText(text: string, unit?: string): string {
+  if (!unit) return text;
+  const multiplier = unit === '万' ? 10000n : 1000n;
+  const [whole = '0', fraction = ''] = text.split('.');
+  const fractionScale = 10n ** BigInt(fraction.length);
+  const scaled = BigInt(whole) * multiplier + BigInt(fraction || '0') * multiplier / fractionScale;
+  return scaled.toString();
+}
+
+function currencyForLabel(label: string): 'MYR' | 'KRW' {
+  return /^(?:MYR|RM|马币|令吉)$/iu.test(label) ? 'MYR' : 'KRW';
+}
+
 /** Conservative slot parser, not an open-ended financial interpreter. Ambiguity stays explicit. */
 export function understand(message: string, previous: Decision, supplied?: Decision, requiresCardNetwork: (decision: Decision) => boolean = () => false) {
   const lower = message.toLowerCase();
+  const zh = isChineseText(message);
   const unsupportedCurrency = /\b(?:usd|eur|gbp|sgd|jpy|cny|rmb|aud|thb|inr|idr|vnd|php|hkd|twd|cad|chf)\b/i.test(message);
-  const purchase = /\b(?:card purchase|purchase|card payment)\b|\b(?:buy|pay).*\bcard\b/i.test(message);
-  const cash = /\b(?:cash|withdraw(?:al)?|atm)\b/.test(lower);
-  const exchange = /\b(?:exchange|convert|conversion)\b/.test(lower);
+  const chineseCash = /(?:取现|提款|取钱|现金|ATM|取韩元)/iu.test(message);
+  const chineseExchange = /(?:换汇|兑换|换钱|换韩元|汇率)/u.test(message);
+  const cash = /\b(?:cash|withdraw(?:al)?|atm)\b/.test(lower) || chineseCash;
+  const exchange = /\b(?:exchange|convert|conversion)\b/.test(lower) || chineseExchange;
+  const purchase = /\b(?:card purchase|purchase|card payment)\b|\b(?:buy|pay).*\bcard\b/i.test(message)
+    || (/(?:刷卡消费|买东西|刷卡支付)/u.test(message) && !cash);
   const network = message.match(/\b(visa|mastercard|unionpay|jcb|amex|diners|maestro|cirrus)\b/i)?.[1]?.toLowerCase()
     ?? (/\b(?:PLUS|Discover)\b/.test(message) || /\b(?:network|card)\s+(?:plus|discover)\b/i.test(message) ? message.match(/\b(plus|discover)\b/i)?.[1]?.toLowerCase() : undefined)
-    ?? (/\b(?:unknown|not sure|do not know|don't know)\b/i.test(message) && (cash || previous.objective === 'atm_withdrawal') ? 'unknown' : undefined);
-  const financial = Boolean(supplied) || Boolean(network) || cash || exchange || /\b(?:balance|reserve|ledger|budget|quote|plan|funding|sen|won|myr|krw|ringgit)\b|(?:myr|krw)_/i.test(message);
+    ?? (/(?:银联)/u.test(message) ? 'unionpay' : /(?:维萨)/u.test(message) ? 'visa' : /(?:万事达)/u.test(message) ? 'mastercard' : undefined)
+    ?? ((/\b(?:unknown|not sure|do not know|don't know)\b/i.test(message) || /(?:未知|不知道|不确定)/u.test(message)) && (cash || previous.objective === 'atm_withdrawal') ? 'unknown' : undefined);
+  const financial = Boolean(supplied) || Boolean(network) || cash || exchange || /\b(?:balance|reserve|ledger|budget|quote|plan|funding|sen|won|myr|krw|ringgit|rm)\b|(?:myr|krw)_|(?:余额|储备金|账本|预算|报价|计划|马币|令吉|韩元|韩币|汇率)/iu.test(message);
   const freshDecision = cash || exchange;
   if (financial && !supplied?.amount && (/\d,\d|[-+]\s*\d|\d\s*–\s*\d/.test(message))) {
     throw new AppError(400, 'INVALID_AMOUNT_TEXT', 'Use one positive plain decimal amount with an explicit supported currency; grouped, signed and ranged amounts require clarification');
@@ -36,20 +68,23 @@ export function understand(message: string, previous: Decision, supplied?: Decis
   const defaults: string[] = [];
   if (cash && !exchange) decision.objective = 'atm_withdrawal';
   if (exchange && !cash) decision.objective = 'exchange';
-  const currencyMatches = [...message.matchAll(/\b(MYR|KRW)\s*(\d+(?:\.\d+)?)(?!\d|\.\d)/gi), ...message.matchAll(/\b(\d+(?:\.\d+)?)\s*(MYR|KRW)\b/gi)];
-  const amounts = currencyMatches.map(match => ({
-    currency: (/^(MYR|KRW)$/i.test(match[1]!) ? match[1] : match[2])!.toUpperCase() as 'MYR' | 'KRW',
-    text: (/^(MYR|KRW)$/i.test(match[1]!) ? match[2] : match[1])!,
-  }));
+  const amounts: { currency: 'MYR' | 'KRW'; text: string }[] = [];
+  const currencyLabels = 'MYR|RM|KRW|won|马币|令吉|韩元|韩币|₩';
+  for (const match of message.matchAll(new RegExp(`(?:\\b)?(${currencyLabels})\\s*(\\d+(?:\\.\\d+)?)(万|千)?(?!\\d|\\.\\d)`, 'giu'))) {
+    amounts.push({ currency: currencyForLabel(match[1]!), text: scaledMajorText(match[2]!, match[3]) });
+  }
+  for (const match of message.matchAll(new RegExp(`(\\d+(?:\\.\\d+)?)(万|千)?\\s*(${currencyLabels})(?![A-Za-z])`, 'giu'))) {
+    amounts.push({ currency: currencyForLabel(match[3]!), text: scaledMajorText(match[1]!, match[2]) });
+  }
   const distinct = [...new Map(amounts.map(amount => [`${amount.currency}:${amount.text}`, amount])).values()];
   let ambiguousAmount = distinct.length > 1 || (distinct.length > 0 && /\b(?:or|between|about|around|approximately|roughly)\b/i.test(message));
   if (distinct.length === 1) {
     const input = distinct[0]!;
     decision.amount = parseMajorMoney(input.text, input.currency);
-    if (/\b(?:budget|including fees|all.in|at most|total debit)\b/.test(lower)) decision.amount_basis = 'total_debit_budget';
-    else if (/\b(?:need|receive|target|want to get)\b/.test(lower)) decision.amount_basis = 'destination_target';
+    if (/\b(?:budget|including fees|all.in|at most|total debit)\b|(?:预算|包括手续费|含手续费|总扣款|最多)/iu.test(message)) decision.amount_basis = 'total_debit_budget';
+    else if (/\b(?:need|receive|target|want to get)\b|(?:需要|想要|目标|到账|取)/iu.test(message)) decision.amount_basis = 'destination_target';
     else if (exchange && input.currency === 'MYR') {
-      decision.amount_basis = 'principal'; defaults.push('Interpreting the stated source-currency amount as principal; fees are additional.');
+      decision.amount_basis = 'principal'; defaults.push(zh ? '已将所述来源货币金额视为本金；手续费另计。' : 'Interpreting the stated source-currency amount as principal; fees are additional.');
     } else if (decision.objective === 'atm_withdrawal' && input.currency === 'KRW') decision.amount_basis = 'destination_target';
   } else if (financial && /\b\d/.test(message) && !decision.amount) ambiguousAmount = true;
   for (const account of Object.values(ACCOUNTS)) {
@@ -58,15 +93,24 @@ export function understand(message: string, previous: Decision, supplied?: Decis
       if (/\b(?:to|into|destination)\b/.test(lower) && decision.objective === 'exchange') decision.destination_account = account.id;
     }
   }
+  if (/(?:马币账户|马来西亚银行卡|银行账户)/u.test(message)) decision.funding_account = 'myr_funding';
+  if (/(?:韩元卡)/u.test(message)) {
+    if (decision.objective === 'exchange' && /(?:到|至|转入|存入)/u.test(message)) decision.destination_account = 'krw_card';
+    else decision.funding_account = 'krw_card';
+  }
+  if (/(?:韩元现金)/u.test(message)) {
+    if (decision.objective === 'exchange' && /(?:到|至|转入|存入)/u.test(message)) decision.destination_account = 'krw_cash';
+    else decision.funding_account = 'krw_cash';
+  }
   if (network) decision.card_network = network;
   decision = { ...decision, ...supplied };
   if (supplied?.amount) ambiguousAmount = false;
   if (decision.objective === 'atm_withdrawal') decision.destination_account = 'krw_cash';
   if (decision.objective === 'exchange' && decision.amount?.currency === 'MYR' && decision.amount_basis !== 'destination_target' && !decision.funding_account) {
-    decision.funding_account = 'myr_funding'; defaults.push('Using the implemented home-currency funding account: MYR Funding.');
+    decision.funding_account = 'myr_funding'; defaults.push(zh ? '使用已实现的本币资金账户：马币资金账户。' : 'Using the implemented home-currency funding account: MYR Funding.');
   }
   if (decision.objective === 'exchange' && decision.funding_account === 'myr_funding' && !decision.destination_account) {
-    decision.destination_account = 'krw_card'; defaults.push('Using the implemented destination-currency card account: KRW Card.');
+    decision.destination_account = 'krw_card'; defaults.push(zh ? '使用已实现的目标货币卡账户：韩元卡。' : 'Using the implemented destination-currency card account: KRW Card.');
   }
   const missing: ClarificationField[] = [];
   if (!decision.objective) missing.push('objective');
@@ -77,8 +121,8 @@ export function understand(message: string, previous: Decision, supplied?: Decis
   if (decision.objective === 'atm_withdrawal' && requiresCardNetwork(decision) && !decision.card_network) missing.push('card_network');
   return {
     decision, defaults, financial, unsupportedCurrency, purchase,
-    decision_request: Boolean(supplied) || cash || exchange || (financial && Boolean(previous.objective) && !/\b(?:balances?|reserves?|ledger|history|plans)\b/i.test(message)),
-    clarification: missing.map(field => ({ field, question: questions[field] })),
+    decision_request: Boolean(supplied) || cash || exchange || (financial && Boolean(previous.objective) && !/\b(?:balances?|reserves?|ledger|history|plans)\b|(?:余额|储备金|账本|历史|计划)/iu.test(message)),
+    clarification: missing.map(field => ({ field, question: (zh ? chineseQuestions : questions)[field] })),
     ambiguous_amount: ambiguousAmount,
   };
 }

@@ -42,6 +42,7 @@ class ATMDetails(SchemaModel):
     distance_meters: StrictInt
     supported_networks: List[str]
     map_url: str
+    kakao_map_url: Optional[str] = None
     withdrawal_guide: str
 
 

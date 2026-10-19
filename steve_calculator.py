@@ -101,6 +101,7 @@ def _atm_info(provider: dict) -> ATMDetails:
         distance_meters=int(provider["distance_meters"]),
         supported_networks=list(provider["supported_networks"]),
         map_url=provider["map_url"],
+        kakao_map_url=provider.get("kakao_map_url"),
         withdrawal_guide=provider["withdrawal_guide"],
     )
 
@@ -337,7 +338,8 @@ if __name__ == "__main__":
             f"{quote.atm_info.withdrawal_guide if quote.atm_info else ''}"
         )
     assert [quote.total_debit.amount_minor for quote in atm_quotes] == [
-        33303,
+        34374,
+        34427,
         34427,
         35157,
     ]
