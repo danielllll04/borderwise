@@ -2,11 +2,13 @@
 
 This backend records activity completed elsewhere. No endpoint initiates a financial transfer, exchange, purchase or withdrawal. No frontend is included. Authentication is still absent: use loopback and the seeded demo profile only. Priority 5 now provides a read/preview Agent; see [its separate handoff](agent.md).
 
+[Pending-plan risk reassessment](pending-plan-risk.md) is available separately through `GET /api/plans/assessments`, Home and an Agent read tool. It preserves saved Plan.status, reserve_breached, quotes and acknowledgement snapshots. A successful completion adds `pending_plan_follow_up` directing the frontend to a separate GET; optional assessment failure cannot misreport or undo that financial posting. Insufficient-funds forecasts do not weaken completion validation.
+
 Run `npm run db:generate` after pulling schema changes, then `npm run db:migrate`, `npm run db:seed` and `npm run dev`. The second migration adds PlanRecord/WorkflowRequest without changing existing money or ledger rows. For a running local API, `npm run demo:plans` demonstrates the happy path with fictional inputs; each invocation creates new plans. It stops at a reserve warning unless the operator explicitly sets `DEMO_ACKNOWLEDGE_RESERVE=true`. Set `DEMO_BASE_URL` to change its loopback URL.
 
 ## Adapter assumptions and supported objectives
 
-The exact shared Plan, Quote, Money, Badge, RateSnapshot and LedgerEntry interfaces are unchanged. Additional fields below live in request/response wrappers or internal database metadata.
+Priority 3 preserves the shared Plan, Quote, Money, Badge, RateSnapshot and LedgerEntry fields. The later confirmed Split handover proposes the additive `shared_expense` ledger type (see [handover](shared-expenses.md)); plan objectives remain unchanged. Additional fields below live in request/response wrappers or internal database metadata.
 
 `src/integrations/compare-adapter.ts` is a small provisional mapping, not Compare's pricing engine:
 

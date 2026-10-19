@@ -9,6 +9,7 @@ import { actualActivity, quoteActivity } from '../integrations/compare-adapter.j
 import type { Badge, Money, Plan } from '../shared/models.js';
 import { LedgerService } from './ledger.js';
 import { assessActivity, type ActivityAssessment } from './plan-preview.js';
+import { ASSESSMENT_FOLLOW_UP } from './post-action-follow-up.js';
 import {
   actualSchema, confirmPlanSchema, listPlansSchema, savePlanSchema, selectionSchema,
   type ActualActivity, type ReserveAcknowledgement, type Selection,
@@ -186,7 +187,7 @@ export class PlanService {
         completionCheckJson: JSON.stringify(check), completionAcknowledgementJson: acknowledgement,
         completionActivityId: posting.activity_id, completionJson: JSON.stringify(completion),
       } });
-      return { ...view(completed), posting };
+      return { ...view(completed), posting, pending_plan_follow_up: ASSESSMENT_FOLLOW_UP };
     });
   }
 

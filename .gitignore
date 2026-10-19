@@ -41,4 +41,14 @@ service-account*.json
 logs/
 coverage/
 .cache/
+.local/
 *.tsbuildinfo
+.venv/
+__pycache__/
+*.py[cod]
+.tmp-*
+*.tmp
+*.temp
+tmp/
+temp/
+uploads/

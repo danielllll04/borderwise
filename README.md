@@ -1,21 +1,33 @@
 # BorderWise — Home, plans and Agent backend
 
-**Status:** P1 (Home/Money & Ledger), P3 (plans/reserve warnings/completion), and P5 (Agent backend) are implemented. Real Groq behaviour remains **unverified**. Compare uses **simulated fixtures**. Authentication and card purchases remain **unsupported**.
+**Status:** P1 (Home/Money & Ledger), P3 (plans/reserve warnings/completion), and P5 (Agent backend) are implemented. Limited **real Groq smoke checks** have run against isolated seeded data; see [observed results and limitations](docs/groq-verification.md). Compare uses **simulated fixtures**. Authentication and card purchases remain **unsupported**.
 
 Home (Priority 1), pending plans/reserve warnings/completion (Priority 3), and a read/preview Agent (Priority 5) for international students. The current demo implements MYR/KRW and three owned accounts. Built with TypeScript, Fastify 5, Prisma 6 and persistent SQLite. **Authentication is not implemented.** All APIs use the single seeded `demo-profile`; keep the default loopback host. Session/profile ownership checks are local demo boundaries, not production user isolation.
 
-BorderWise records user-reported activity completed elsewhere. It never executes transfers, exchanges, card payments or ATM withdrawals. Seed data and quote fixtures are **Simulated**; completion amounts supplied through the plan API are labelled **User-Confirmed**. The Agent uses an optional Groq tool-calling adapter and cannot save/confirm/cancel plans, post a ledger entry or change a profile/reserve through chat. There are no frontend screens, Steve's Compare engine, Split UI, OCR, bank connections or live market integrations. Card purchase plans remain unsupported until a purchase ledger type is agreed.
+BorderWise records user-reported activity completed elsewhere. It never executes transfers, exchanges, card payments or ATM withdrawals. Seed data and quote fixtures are **Simulated**; completion amounts supplied through the plan API are labelled **User-Confirmed**. The Agent uses an optional Groq tool-calling adapter and cannot save/confirm/cancel plans, post a ledger entry or change a profile/reserve through chat. This branch has no connected frontend, Split UI, live OCR, bank connections or live market integrations. Card purchase plans remain unsupported until a purchase ledger type is agreed.
 
-**Priority 3 handoff:** [plan API guide and examples](docs/priority-3.md). It covers preview → acknowledge → save, revised quotes, actual completion, cancellation, stale checks and idempotency. The shared models in `src/shared/models.ts` are unchanged.
+Remote team work is preserved: Steve's `schemas.py`, `seed_data.py` and `steve_calculator.py` provide Python schema/calculator work, while `feature/borderwise-frontend` contains separate frontend work. These are not connected to the TypeScript Agent adapters. The Agent still uses its explicitly Simulated fixtures; Python and TypeScript contract alignment remains integration work, not an implemented engine replacement.
+
+**Priority 3 handoff:** [plan API guide and examples](docs/priority-3.md). It covers preview → acknowledge → save, revised quotes, actual completion, cancellation, stale checks and idempotency.
 
 **Priority 5 handoff:** [Agent configuration, API and frontend examples](docs/agent.md). Groq credentials are optional for Home/plans. With no configured key/model the Agent returns an informative unavailable response; it never silently substitutes a scripted model.
+
+**Confirmed Split handover:** [proposed contract, accounting and isolated demo](docs/shared-expenses.md). `POST /api/shared-expenses/confirm` records a same-currency shared bill paid by the current user, with one gross debit, a separate personal-expense allocation and authoritative receivables. The additive shared ledger type `shared_expense` is a **proposal requiring Steve's schema alignment**. Existing shared fields and types are preserved. No Agent financial write tool is added; real Groq observations are documented separately from Simulated adapter results.
+
+**Current pending-plan risk:** [assessment API, Home/Agent cards and frontend refresh](docs/pending-plan-risk.md). `GET /api/plans/assessments` projects each pending plan independently against one current recorded balance/reserve snapshot, with distinct deficits and reserve shortfalls. Home adds risk counts and up to three relevant cards. The Agent gains one read-only `read_pending_plan_risks` tool. Financial actions return a separate refresh-read instruction; assessment failures do not turn committed payments into failures. Saved quotes, flags and acknowledgements remain historical records.
+
+**Receipt review:** [adapter contracts, upload/review APIs and frontend confirmation](docs/receipt-review.md). The Agent can prepare versioned receipt/assignment proposals through proposed Steve adapter ports. Explicit `RECEIPT_PROVIDER=demo` returns a labelled OCR/allocation fixture; no live Steve integration or image interpretation is claimed. A separate frontend confirmation route resolves the trusted current proposal and reuses shared-expense accounting. Chat cannot post money. JPEG/PNG images are validated and stored privately; review metadata and committed results survive image cleanup.
+
+**Steve/frontend integration handover:** start with [shared-expense confirmation](docs/shared-expenses.md), [pending-plan risk](docs/pending-plan-risk.md), [receipt review](docs/receipt-review.md) and the [proposed card-network/Compare addition](docs/agent.md#proposed-internal-compare-addition-for-steve-card-network). [Real Groq observations](docs/groq-verification.md) distinguish actual model tool selection from Simulated adapters and record remaining blockers. These proposals still require alignment with the remote Python models; they do not silently replace agreed shared models.
+
+**Dependency audit:** [per-package findings, compatible fixes and remaining exposure](docs/dependency-audit.md). Matched Prisma/client 6.19.3 and TypeScript ESLint 8.71.2 reduce the full audit from 13 to 3 high package findings. The remaining entries share the deepmerge-ts advisory through Prisma's config loader; audit still fails and a reviewed Prisma major migration remains recommended.
 
 ## Setup (PowerShell)
 
 Requires Node.js 22.14+ and npm. From this directory:
 
 ```powershell
-Copy-Item .env.example .env
+if (!(Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }
 npm ci
 npm run db:migrate
 npm run db:seed
@@ -23,6 +35,8 @@ npm run dev
 ```
 
 Open `http://127.0.0.1:3000/api/home`. `.env.example` contains no secrets. `DATABASE_URL="file:./dev.db"` resolves relative to `prisma/schema.prisma`, so data lives at `prisma/dev.db` and survives server restarts. The migration commands first create the SQLite file if absent, without truncating existing data, to avoid a Prisma 6 Windows initialization error. The database and `.env` are ignored by Git. Restarting or seeding does not reset the database. Profile edits survive seed reruns.
+
+For real Groq, enter the key only in ignored `.env`, set `AGENT_PROVIDER="groq"` and select an available tool-calling `GROQ_MODEL`. The isolated smoke check successfully used `openai/gpt-oss-120b`; the earlier `llama-3.3-70b-versatile` returned `model_not_found`. Inherited PowerShell variables override `.env`: clear `Env:AGENT_PROVIDER`, `Env:GROQ_MODEL` and `Env:AGENT_DEMO_FAILURE` with `Remove-Item ... -ErrorAction SilentlyContinue`, or explicitly set the provider/model in the launching session. Keep `RECEIPT_PROVIDER="unavailable"` until connected; setting it to `demo` explicitly enables Simulated OCR/directory/allocation. Compare fixtures remain Simulated even with real Groq; ATM compatibility stays unknown without supporting data. See [configuration and actual results](docs/groq-verification.md).
 
 | Command | Purpose |
 | --- | --- |
@@ -38,6 +52,8 @@ Open `http://127.0.0.1:3000/api/home`. `.env.example` contains no secrets. `DATA
 | `npm run demo:post` | **LOCAL DEMO WRITE:** add/replay fictional MYR ATM and partial repayment |
 | `npm run demo:plans` | **LOCAL DEMO WRITE:** use a running local API to demonstrate plan preview/save, actual completion/replay and cancellation; new plans each run |
 | `npm run demo:agent` | Read/preview chat against a running API; persists sessions/messages/proposals only. `DEMO_AGENT_SAVE=true` opts into a separate frontend Save demonstration |
+| `npm run demo:split` | **SIMULATED, ISOLATED:** create a temporary database and exercise confirmed Split posting and partial settlement; configured financial records are untouched |
+| `npm run receipts:cleanup` | Remove expired private receipt images/orphans; retain review and financial metadata |
 
 No tests have been written. The lint/build/type checks and local seed/demo scripts are the available verification commands. Prisma 6 is pinned together with its client; do not independently upgrade one to a new major version. SQL migrations also contain safe-integer, currency and non-negative checks plus immutable-plan-snapshot and terminal-status triggers that Prisma's schema syntax cannot express; preserve them in future migrations.
 
@@ -64,7 +80,7 @@ Fresh seed balances are **402133 MYR minor units**, **218000 KRW card**, **80000
 
 ## Money, provenance and accounting
 
-The exact agreed shared TypeScript models live in **`src/shared/models.ts`**. Import them from that location for Steve's future integrations. Shared `Money` is `{ amount_minor, currency }`: sen for MYR and whole won for KRW. The capitalized `Money` keys in quote fees and ledger lines are preserved. Backend request types, persistence fields and response wrappers are separate from those shared models.
+The shared TypeScript models live in **`src/shared/models.ts`**, including the proposed additive `shared_expense` ledger type awaiting Steve's alignment. Import them from that location for future integrations. Shared `Money` is `{ amount_minor, currency }`: sen for MYR and whole won for KRW. The capitalized `Money` keys in quote fees and ledger lines are preserved. Backend request types, persistence fields and response wrappers are separate from those shared models.
 
 - Money inputs are JSON numbers validated as safe integers, from 0 to `Number.MAX_SAFE_INTEGER`. Transaction principal, received and settlement amounts must be strictly positive. Fees and reserves may be zero. Negative reserves and unsafe reserve totals are rejected.
 - SQLite stores monetary columns as `BIGINT`; service calculations, debits, credits, totals and differences use `bigint`. Values convert to JSON numbers only after a safe-range check. Amounts exceeding SQLite's 32-bit Prisma `Int` range are supported.
@@ -233,11 +249,11 @@ All errors use the same envelope, including malformed JSON, unsupported content 
 }
 ```
 
-`details` is optional. HTTP validation errors use 400, missing records 404, business/idempotency/reserve acknowledgement conflicts 409, invalid accounting/currency/range combinations or unsupported objectives 422, database contention 503 and unexpected failures 500. Internal service calls throw `AppError` or Zod validation errors. Plan confirmation is the only HTTP posting adapter.
+`details` is optional. HTTP validation errors use 400, missing records 404, business/idempotency/reserve acknowledgement conflicts 409, invalid accounting/currency/range combinations or unsupported objectives 422, database contention 503 and unexpected failures 500. Internal service calls throw `AppError` or Zod validation errors. Plan confirmation and explicit confirmed shared expenses are the HTTP posting adapters.
 
 ## Posting service and integration boundaries
 
-`src/services/ledger.ts` exports `LedgerService` and `PostingResult`. `src/services/posting-inputs.ts` exports distinct **internal** validated inputs for income, exchange, ATM and settlement. `scripts/demo-post.ts` is the runnable local example. A representative internal call:
+`src/services/ledger.ts` exports `LedgerService` and `PostingResult`. `src/services/posting-inputs.ts` exports distinct **internal** validated inputs for income, exchange, ATM, settlement and confirmed shared expenses. `scripts/demo-post.ts` is the runnable local example for existing flows. A representative internal call:
 
 ```typescript
 const result = await ledger.post({
@@ -265,7 +281,7 @@ For settlement, use `kind: 'settlement'`, `receivable_id`, `receiving_account`, 
 - Preview a selected shared Quote with separate routing and fee-behavior context.
 - Save a pending shared Plan as metadata only, without posting or reserving funds.
 - Confirm a pending plan using actual exchange/ATM inputs, with transaction-bound ledger posting.
-- Receive a future Split settlement using original-currency clearing and actual repayment values; no Split HTTP workflow is implemented.
+- Receive a Split settlement using original-currency clearing and actual repayment values through the existing internal service. A proposed explicit-confirmation HTTP handover now creates shared-expense receivables; no live Steve integration or settlement HTTP workflow is implemented.
 
 `LedgerService.prepareInTransaction` validates/projects without writes; `postInTransaction` lets the plan service commit actual ledger activity, completion metadata and workflow replay together. Direct `LedgerService.post` still serves the existing seed/demo and future Split adapter. Compare and Split must not write the ledger or balances directly. Saving a quote or plan never posts financial activity. The Agent reuses Home/plan services without a separate accounting implementation.
 
@@ -281,10 +297,12 @@ The agreed field names are unchanged. These assumptions are isolated and need ag
 
 6. The isolated Compare adapter currently recognizes free-text objectives `exchange` / `atm_withdrawal` and stable account IDs in `funding_source`. Confirm those mappings, the separate-account-fee interpretation of `total_debit` and `net_received`, and who supplies fixed-fee assertions. They are adapter assumptions, not new shared enums. Card purchase support needs an agreed ledger representation first.
 
+7. Align the proposed `shared_expense` ledger type and confirmed-split request/response wrappers, stable identity mapping, original provenance, and split/receipt uniqueness described in [the Split handover](docs/shared-expenses.md).
+
 ## Agent configuration and boundaries
 
 Configure `GROQ_API_KEY` and `GROQ_MODEL` only in the server environment or ignored `.env`. Select an available Groq model supporting local function calling; no current model name is assumed. Existing Node `fetch` handles HTTPS requests; no model SDK was added. See [Groq local tool calling](https://console.groq.com/docs/tool-use/local-tool-calling) and its [supported models](https://console.groq.com/docs/models).
 
-For explicitly scripted development, start the server with `AGENT_PROVIDER=demo`. Responses visibly label this as a demo, not real Groq. `AGENT_DEMO_FAILURE=rate_limit` or `unavailable` simulates provider failure in this mode. No Groq credentials were available during local verification; real Groq behavior remains unverified.
+For explicitly scripted development, start the server with `AGENT_PROVIDER=demo`. Responses visibly label this as a demo, not real Groq. `AGENT_DEMO_FAILURE=rate_limit` or `unavailable` simulates provider failure in this mode. Initial verification used that mode; later [real Groq smoke checks](docs/groq-verification.md) used a temporary database and private uploads. Live Compare/OCR/allocation remain unverified.
 
-The Agent reuses Home/plan services and a small Compare interface. Its fixtures are complete static examples, never scaled or described as live provider offers. Proposals reference immutable server snapshots; a separate frontend re-preview and Save route delegates to Priority 3 with an in-transaction stale check and any required acknowledgement. Chat messages cannot trigger that route. Completion and cancellation remain outside Agent authority. Shared financial models are unchanged. See the Agent handoff for remaining Steve/frontend work and limitations.
+The Agent reuses Home/plan services and a small Compare interface. Its fixtures are complete static examples, never scaled or described as live provider offers. Proposals reference immutable server snapshots; a separate frontend re-preview and Save route delegates to Priority 3 with an in-transaction stale check and any required acknowledgement. Chat messages cannot trigger that route. Completion and cancellation remain outside Agent authority. The only new shared-contract proposal is the additive `shared_expense` ledger type; Agent tools remain read/preview only. See the Agent handoff for remaining Steve/frontend work and limitations.

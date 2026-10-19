@@ -23,6 +23,7 @@ model Profile {
   receivables           Receivable[]
   plans                 PlanRecord[]
   agentSessions         AgentSession[]
+  sharedExpenses        SharedExpense[]
 }
 
 model Account {
@@ -35,6 +36,7 @@ model Account {
   balanceBadgeJson      String
   balanceProvenanceJson String
   lines                 LedgerLine[]
+  sharedExpenses        SharedExpense[]
 }
 
 // Each activity groups principal movements, fee entries, actual inputs and provenance.
@@ -52,6 +54,7 @@ model Activity {
   entries             LedgerEntry[]
   settlement          Settlement?
   completedPlan       PlanRecord?
+  sharedExpense       SharedExpense?
 }
 
 model LedgerEntry {
@@ -64,6 +67,7 @@ model LedgerEntry {
   badgeJson  String
   createdAt  DateTime @default(now())
   lines      LedgerLine[]
+  sharedExpense SharedExpense?
 
   @@index([profileId, createdAt, id])
   @@index([activityId])
@@ -92,6 +96,44 @@ model Receivable {
   amountBadgeJson    String
   settledMinor       BigInt   @default(0)
   settlements        Settlement[]
+  sharedAllocation   SharedExpenseAllocation?
+}
+
+// Proposed confirmed Split handover. Allocations are not additional account lines.
+model SharedExpense {
+  id                String   @id
+  profileId         String
+  profile           Profile  @relation(fields: [profileId], references: [id])
+  splitId           String
+  receiptId         String
+  activityId        String   @unique
+  activity          Activity @relation(fields: [activityId], references: [id])
+  ledgerEntryId     String   @unique
+  ledgerEntry       LedgerEntry @relation(fields: [ledgerEntryId], references: [id])
+  payerId           String
+  paidFromAccount   String
+  paidAccount       Account @relation(fields: [paidFromAccount], references: [id])
+  currency          String
+  billTotalMinor    BigInt
+  payerShareMinor   BigInt
+  paidAt            DateTime
+  createdAt         DateTime @default(now())
+  allocations       SharedExpenseAllocation[]
+
+  @@unique([profileId, splitId])
+  @@unique([profileId, receiptId])
+}
+
+model SharedExpenseAllocation {
+  id               String @id
+  sharedExpenseId  String
+  sharedExpense    SharedExpense @relation(fields: [sharedExpenseId], references: [id])
+  participantId    String
+  shareMinor       BigInt
+  receivableId     String @unique
+  receivable       Receivable @relation(fields: [receivableId], references: [id])
+
+  @@unique([sharedExpenseId, participantId])
 }
 
 model Settlement {
@@ -156,6 +198,83 @@ model AgentSession {
   messages         AgentMessage[]
   quotes           AgentQuoteSnapshot[]
   proposals        AgentProposal[]
+  receiptAttachments ReceiptAttachment[]
+  receiptDrafts      ReceiptDraft[]
+  receiptRequests    ReceiptConfirmationRequest[]
+}
+
+model ReceiptAttachment {
+  id            String @id
+  sessionId     String
+  session       AgentSession @relation(fields: [sessionId], references: [id])
+  storageKey    String @unique
+  sha256        String
+  contentType   String
+  byteSize      Int
+  width         Int
+  height        Int
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  purgedAt      DateTime?
+  draft         ReceiptDraft?
+  @@index([sessionId, createdAt])
+}
+
+model ReceiptDraft {
+  id            String @id
+  sessionId     String
+  session       AgentSession @relation(fields: [sessionId], references: [id])
+  attachmentId  String @unique
+  attachment    ReceiptAttachment @relation(fields: [attachmentId], references: [id])
+  receiptId     String
+  extractedJson String
+  currentVersion Int @default(1)
+  confirmedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  versions      ReceiptDraftVersion[]
+  proposals     ReceiptSplitProposal[]
+  @@index([sessionId, createdAt])
+}
+
+model ReceiptDraftVersion {
+  draftId       String
+  draft         ReceiptDraft @relation(fields: [draftId], references: [id])
+  version       Int
+  receiptJson   String
+  correctionsBadgeJson String?
+  assignmentsJson String?
+  origin        String
+  createdAt     DateTime @default(now())
+  @@id([draftId, version])
+}
+
+model ReceiptSplitProposal {
+  id            String @id
+  draftId       String
+  draft         ReceiptDraft @relation(fields: [draftId], references: [id])
+  version       Int
+  bindingHash   String
+  allocationJson String
+  postingInputJson String
+  resultJson    String?
+  confirmedAt   DateTime?
+  createdAt     DateTime @default(now())
+  requests      ReceiptConfirmationRequest[]
+  @@index([draftId, version])
+  @@index([confirmedAt, id])
+}
+
+model ReceiptConfirmationRequest {
+  sessionId     String
+  session       AgentSession @relation(fields: [sessionId], references: [id])
+  idempotencyKey String
+  payloadHash   String
+  proposalId    String
+  proposal      ReceiptSplitProposal @relation(fields: [proposalId], references: [id])
+  resultJson    String
+  createdAt     DateTime @default(now())
+  @@id([sessionId, idempotencyKey])
 }
 
 model AgentTurn {

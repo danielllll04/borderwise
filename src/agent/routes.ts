@@ -3,10 +3,11 @@ import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { AgentService } from './service.js';
 import { agentParams, proposalParams } from './inputs.js';
+import { ReceiptService } from '../receipts/service.js';
 
 const empty = z.object({}).strict();
-export function registerAgentRoutes(app: FastifyInstance, db: PrismaClient) {
-  const agent = new AgentService(db);
+export function registerAgentRoutes(app: FastifyInstance, db: PrismaClient, receipts = new ReceiptService(db)) {
+  const agent = new AgentService(db, undefined, undefined, receipts);
   app.get('/api/agent', request => { empty.parse(request.query); return agent.availability(); });
   app.post('/api/agent/sessions', request => { empty.parse(request.query); empty.parse(request.body ?? {}); return agent.createSession(); });
   app.get('/api/agent/sessions/:sessionId', async request => {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from '../domain/errors.js';
+import { DEMO_ASSIGNMENTS, DEMO_PARTICIPANTS } from '../receipts/adapters.js';
 
 export interface ToolDefinition {
   type: 'function';
@@ -86,13 +87,26 @@ export class DemoAdapter implements ModelAdapter {
   constructor(private readonly failure?: string) {}
   async next(messages: ModelMessage[]): Promise<ToolCall[]> {
     if (this.failure) throw new ProviderError(this.failure === 'rate_limit' ? 429 : 503, 'AGENT_DEMO_PROVIDER_ERROR', 'Explicit demo adapter: simulated provider failure.');
-    const context = JSON.parse(messages[1]!.content!) as { message: string; purchase: boolean; unsupported_currency: boolean; missing: string[]; decision_request: boolean; active_snapshot_id: string | null; selected_snapshot_id: string | null };
+    const context = JSON.parse(messages[1]!.content!) as { message: string; purchase: boolean; unsupported_currency: boolean; missing: string[]; decision_request: boolean; active_snapshot_id: string | null; selected_snapshot_id: string | null; attachment_id?: string; receipt_draft?: { draft_id: string; version: number } };
     const completed = messages.filter(message => message.role === 'tool').map(message => JSON.parse(message.content!) as Record<string, unknown>);
     const call = (name: string, args: unknown = {}): ToolCall[] => [{ id: `demo-${completed.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }];
     if (completed.length === 0) {
+      if (context.attachment_id) return call('extract_receipt_review', { attachment_id: context.attachment_id });
+      if (context.receipt_draft) {
+        if (/\b(?:split|allocat\w*|assign\w*|daniel|tze loon)\b/i.test(context.message) && !/^(?:yes|confirm|save)[.! ]*$/i.test(context.message)) {
+          const exact = /\bfood\b.*\b(?:all|three)\b/i.test(context.message) && /\b(?:drinks|beverages)\b.*\bdaniel only\b/i.test(context.message) && /\b(?:additional|extra)\b.*\b(?:payer only|mine)\b/i.test(context.message);
+          const account = /krw cash/i.test(context.message) ? 'krw_cash' : /krw card/i.test(context.message) ? 'krw_card' : /myr funding/i.test(context.message) ? 'myr_funding' : undefined;
+          const paidAt = context.message.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z/)?.[0];
+          return call('propose_receipt_allocation', { draft_id: context.receipt_draft.draft_id, expected_version: context.receipt_draft.version,
+            participant_ids: DEMO_PARTICIPANTS.map(item => item.participant_id), payer_id: 'demo-profile', assignments: exact ? DEMO_ASSIGNMENTS : [],
+            ...(account ? { paid_from_account: account } : {}), ...(paidAt ? { paid_at: paidAt } : {}), payment_mode: 'new_payment' });
+        }
+        return call('read_receipt_review', { draft_id: context.receipt_draft.draft_id });
+      }
       if (context.purchase || context.unsupported_currency) return call('show_limitation');
       if (context.selected_snapshot_id) return call('preview_quote', { snapshot_id: context.selected_snapshot_id });
       if (/\b(?:save|confirm|cancel|yes|do it)\b/i.test(context.message) && !context.decision_request) return call('get_home');
+      if (/\b(?:(?:pending[- ]?)?plans?.*(?:risks?|assess\w*|afford\w*|reserves?)|(?:risks?|assess\w*|afford\w*|reserves?).*plans?)\b/i.test(context.message)) return call('read_pending_plan_risks', { limit: 3 });
       if (/\b(?:ledger|history)\b/i.test(context.message)) return call('read_ledger', { limit: 3 });
       if (/\b(?:pending plans|list plans)\b/i.test(context.message)) return call('list_plans', { limit: 3 });
       if (context.decision_request) return context.missing.length ? call('request_clarification') : call('compare_options');
