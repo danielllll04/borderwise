@@ -9,6 +9,8 @@ export interface ComparisonOption {
   selection: Selection;
   rank: number;
   funding_match?: 'requested' | 'alternative';
+  /** Proposed internal adapter metadata; not part of the shared Quote model. */
+  compatibility?: { status: 'unknown'; reason: string } | { status: 'compatible' | 'incompatible'; card_network: string; evidence: { source: string; timestamp: string } };
   assumptions: {
     confirmed: boolean;
     fee_debits: 'separate_account_debits';
@@ -20,10 +22,13 @@ export type Comparison =
   | { status: 'ready'; source: 'simulated_fixture' | 'compare'; ranking: string; options: ComparisonOption[] }
   | { status: 'requote_required' | 'unsupported'; reason: string; options: [] };
 export interface CompareAdapter {
+  /** Synchronous adapter policy: require a network before ATM compatibility filtering. */
+  requiresCardNetwork?(decision: Decision): boolean;
   compare(decision: Decision): Promise<Comparison>;
 }
 
-interface Fixture { decision: Required<Decision>; options: ComparisonOption[] }
+type FixtureDecision = Required<Omit<Decision, 'card_network'>>;
+interface Fixture { decision: FixtureDecision; options: ComparisonOption[] }
 const simulatedBadge = { status: 'Simulated' as const, source: 'BorderWise Agent Compare fixture; fictional option, no live rate or real provider offer', timestamp: '2026-10-18T00:00:00.000Z' };
 function fixtureOption(id: string, principal: number, fee: number, received: number, total: number, rank: number, behavior: Selection['context']['fee_behavior'] = 'fixed', cash = false, funding: 'myr_funding' | 'krw_card' = 'myr_funding', rate = '298'): ComparisonOption {
   const currency = funding === 'myr_funding' ? 'MYR' : 'KRW';
@@ -37,7 +42,7 @@ function fixtureOption(id: string, principal: number, fee: number, received: num
   quoteActivity(selection); // Existing Priority 3 money/currency/fee-consistency validation.
   return { selection, rank, assumptions: { confirmed: true, fee_debits: 'separate_account_debits', net_received: 'destination_credit_before_separate_account_fees', fixed_fee_assertion: 'fixture_only' } };
 }
-const fixtureDecision = (amount: number, basis: Required<Decision>['amount_basis'], cash = false, funding: 'myr_funding' | 'krw_card' = 'myr_funding', currency: 'MYR' | 'KRW' = 'MYR'): Required<Decision> => ({
+const fixtureDecision = (amount: number, basis: FixtureDecision['amount_basis'], cash = false, funding: 'myr_funding' | 'krw_card' = 'myr_funding', currency: 'MYR' | 'KRW' = 'MYR'): FixtureDecision => ({
   objective: cash ? 'atm_withdrawal' : 'exchange', amount: { amount_minor: amount, currency }, amount_basis: basis,
   funding_account: funding, destination_account: cash ? 'krw_cash' : 'krw_card',
 });
@@ -52,7 +57,9 @@ const FIXTURES: Fixture[] = [
 ];
 
 export class FixtureCompareAdapter implements CompareAdapter {
+  requiresCardNetwork(decision: Decision) { return decision.objective === 'atm_withdrawal'; }
   async compare(decision: Decision): Promise<Comparison> {
+    if (this.requiresCardNetwork(decision) && !decision.card_network) return { status: 'unsupported', reason: 'Card network is required before ATM compatibility filtering.', options: [] };
     const funding = decision.funding_account ? ACCOUNTS[decision.funding_account] : null;
     const destination = decision.destination_account ? ACCOUNTS[decision.destination_account] : null;
     if (funding && destination && decision.amount) {
@@ -61,9 +68,14 @@ export class FixtureCompareAdapter implements CompareAdapter {
       if (funding.id === destination.id || decision.objective === 'exchange' && funding.currency === destination.currency) return { status: 'unsupported', reason: 'An exchange needs different owned accounts and currencies.', options: [] };
       if (decision.objective === 'atm_withdrawal' && (funding.id === 'krw_cash' || destination.id !== 'krw_cash')) return { status: 'unsupported', reason: 'Supported cash withdrawals move MYR Funding or KRW Card into KRW Cash.', options: [] };
     }
-    const fixture = FIXTURES.find(item => payloadHash(item.decision) === payloadHash(decision));
+    // Price fixtures have no network evidence. A network must never turn them into compatibility claims.
+    const priceDecision = { ...decision };
+    delete priceDecision.card_network;
+    const fixture = FIXTURES.find(item => payloadHash(item.decision) === payloadHash(priceDecision));
     if (!fixture) return { status: 'requote_required', reason: 'No complete simulated quote exists for this exact request. Ask Compare for a revised quote; the Agent cannot generate or scale one.', options: [] };
-    return { status: 'ready', source: 'simulated_fixture', ranking: 'Static fixture order supplied by adapter; no claim of market best price.', options: structuredClone(fixture.options) };
+    const options = structuredClone(fixture.options).map(option => decision.objective === 'atm_withdrawal'
+      ? { ...option, compatibility: { status: 'unknown' as const, reason: 'Simulated price fixture has no ATM/network compatibility evidence. Verify with the ATM/card provider.' } } : option);
+    return { status: 'ready', source: 'simulated_fixture', ranking: 'Static fixture order supplied by adapter; no claim of market best price.', options };
   }
 }
 
@@ -71,7 +83,16 @@ export class FixtureCompareAdapter implements CompareAdapter {
 export function validateComparison(result: Comparison, decision: Decision): Comparison {
   if (result.status !== 'ready') return result;
   if (result.options.length === 0 || result.options.length > 3) return { status: 'unsupported', reason: 'Compare must return a bounded set of complete options.', options: [] };
-  const options = result.options.map(option => ({ ...option, selection: selectionSchema.parse(option.selection) }));
+  const options = result.options.map(option => {
+    const evidence = option.compatibility;
+    const supported = evidence && evidence.status !== 'unknown'
+      && decision.card_network && decision.card_network !== 'unknown' && evidence.card_network.toLowerCase() === decision.card_network
+      && evidence.evidence?.source?.trim() && Number.isFinite(Date.parse(evidence.evidence.timestamp));
+    return { ...option, selection: selectionSchema.parse(option.selection), ...(decision.objective === 'atm_withdrawal' ? {
+      compatibility: supported && result.source !== 'simulated_fixture' ? evidence
+        : { status: 'unknown' as const, reason: 'No supporting ATM/network compatibility data for this request. Verify with the ATM/card provider.' },
+    } : {}) };
+  });
   if (options.some(option => {
     const quote = option.selection.quote;
     const value = decision.amount_basis === 'destination_target' ? quote.net_received : decision.amount_basis === 'total_debit_budget' ? quote.total_debit : quote.principal;

@@ -4,7 +4,9 @@
   "private": true,
   "description": "BorderWise Home, plans and read-only Agent backend (local demo; no authentication)",
   "type": "module",
-  "engines": { "node": ">=22.14.0" },
+  "engines": {
+    "node": ">=22.14.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
@@ -20,22 +22,25 @@
     "demo:post": "tsx scripts/demo-post.ts",
     "demo:plans": "tsx scripts/demo-plans.ts",
     "demo:agent": "tsx scripts/demo-agent.ts",
+    "demo:split": "tsx scripts/demo-shared-expense.ts",
+    "receipts:cleanup": "tsx scripts/cleanup-receipts.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "6.19.0",
+    "@prisma/client": "6.19.3",
     "decimal.js": "10.6.0",
     "dotenv": "16.6.1",
-    "fastify": "5.6.2",
+    "fastify": "5.12.7",
+    "sharp": "0.35.5",
     "zod": "3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
     "@types/node": "22.19.0",
     "eslint": "9.39.1",
-    "prisma": "6.19.0",
+    "prisma": "6.19.3",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.46.3"
+    "typescript-eslint": "8.71.2"
   }
 }

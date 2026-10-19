@@ -1,4 +1,4 @@
-/** Agreed integration contract. No backend-only fields belong in these models. */
+/** Integration contract. shared_expense is a proposed additive value awaiting Steve's alignment. */
 export type Currency = 'MYR' | 'KRW';
 
 /** Sen for MYR; whole won for KRW. Signed only inside LedgerEntry.lines. */
@@ -50,7 +50,7 @@ export interface Plan {
 
 export interface LedgerEntry {
   entry_id: string;
-  type: 'income' | 'exchange' | 'atm_withdrawal' | 'fee' | 'settlement';
+  type: 'income' | 'exchange' | 'atm_withdrawal' | 'fee' | 'settlement' | 'shared_expense';
   lines: { account: string; Money: Money }[];
   badge: Badge;
 }

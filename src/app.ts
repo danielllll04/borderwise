@@ -6,6 +6,10 @@ import { HomeService, profileUpdateSchema } from './services/home.js';
 import { PlanService } from './services/plans.js';
 import { completionPreviewSchema } from './services/plan-inputs.js';
 import { registerAgentRoutes } from './agent/routes.js';
+import { SharedExpenseService } from './services/shared-expenses.js';
+import { PendingPlanRiskService } from './services/pending-plan-risk.js';
+import { ReceiptService, type ReceiptOptions } from './receipts/service.js';
+import { registerReceiptRoutes } from './receipts/routes.js';
 
 const ledgerQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -14,13 +18,15 @@ const ledgerQuerySchema = z.object({
 const emptyQuery = z.object({}).strict();
 const planParams = z.object({ planId: z.string().uuid() }).strict();
 
-export function buildApp(db: PrismaClient, logger = true) {
+export function buildApp(db: PrismaClient, logger = true, receiptOptions: ReceiptOptions = {}) {
   const app = Fastify({
     logger: logger ? { level: process.env.LOG_LEVEL ?? 'info' } : false,
     bodyLimit: 32 * 1024,
   });
   const home = new HomeService(db);
   const plans = new PlanService(db);
+  const sharedExpenses = new SharedExpenseService(db);
+  const pendingPlanRisk = new PendingPlanRiskService(db);
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -61,9 +67,19 @@ export function buildApp(db: PrismaClient, logger = true) {
     return home.ledger(query.limit, query.cursor);
   });
   app.get('/api/home', request => { emptyQuery.parse(request.query); return home.summary(); });
+  app.post('/api/shared-expenses/confirm', request => {
+    emptyQuery.parse(request.query); return sharedExpenses.confirm(request.body);
+  });
   app.post('/api/plans/preview', request => { emptyQuery.parse(request.query); return plans.preview(request.body); });
   app.post('/api/plans', request => { emptyQuery.parse(request.query); return plans.save(request.body); });
   app.get('/api/plans', request => plans.list(request.query));
+  app.get('/api/plans/assessments', async (request, reply) => {
+    const result = await pendingPlanRisk.list(request.query);
+    if (result.status === 'unavailable') return reply.code(503).send({ error: {
+      code: result.code, message: result.reason, details: result, request_id: request.id,
+    } });
+    return result;
+  });
   app.get('/api/plans/:planId', request => {
     emptyQuery.parse(request.query); return plans.read(planParams.parse(request.params).planId);
   });
@@ -78,6 +94,8 @@ export function buildApp(db: PrismaClient, logger = true) {
   app.post('/api/plans/:planId/confirm', request => {
     emptyQuery.parse(request.query); return plans.confirm(planParams.parse(request.params).planId, request.body);
   });
-  registerAgentRoutes(app, db);
+  const receipts = new ReceiptService(db, receiptOptions);
+  registerReceiptRoutes(app, receipts);
+  registerAgentRoutes(app, db, receipts);
   return app;
 }
