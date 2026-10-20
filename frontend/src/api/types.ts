@@ -88,7 +88,7 @@ export interface CompareRequest {
 export interface CompareOption extends AgentOption {
   proposal_id: string | null
   compatibility?: { status: 'unknown'; reason: string } | { status: 'compatible' | 'incompatible'; card_network: string; evidence: { source: string; timestamp: string } }
-  atm_info?: { bank_name: string; location_name: string; supported_networks: string[] }
+  atm_info?: { bank_name: string; location_name: string; supported_networks: string[]; distance_meters: number; map_url: string; kakao_map_url?: string | null; withdrawal_guide: string }
 }
 export type CompareResult = { status: 'ready'; session_id: string; source: string; ranking: string; options: CompareOption[] }
   | { status: 'unsupported' | 'requote_required'; reason: string; options: [] }
@@ -97,6 +97,17 @@ export interface ManualCompareApi {
   quotes(input: CompareRequest): Promise<CompareResult>
   preview(sessionId: string, proposalId: string): Promise<ProposalPreview>
   save(sessionId: string, proposalId: string, key: string, token: string, ack?: { acknowledged: true; check_token: string }): Promise<PlanResponse>
+}
+
+export type AtmResult = {status: 'ready'; source: string; pricing_context: CompareRequest; options: Pick<CompareOption, 'selection' | 'rank' | 'atm_info' | 'compatibility'>[]}
+  | {status: 'unsupported' | 'requote_required'; reason: string; options: []}
+export interface AlertResult {
+  pair: 'MYR/KRW'; triggered: boolean; current_rate: number; target_rate: number; direction: 'above' | 'below'
+  history_7d: number[]; planned_amount: Money; estimated_proceeds: Money; recommendation: string; badge: Badge
+}
+export interface AtmAlertsApi {
+  atms(network: string): Promise<AtmResult>
+  check(input: {pair: 'MYR/KRW'; target_rate: number; direction: 'above'}): Promise<AlertResult>
 }
 
 // Home wrappers mirror existing Node read/completion APIs; shared financial contracts are unchanged.

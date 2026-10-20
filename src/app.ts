@@ -12,6 +12,7 @@ import { ReceiptService, type ReceiptOptions } from './receipts/service.js';
 import { registerReceiptRoutes } from './receipts/routes.js';
 import { registerSettlementRoutes } from './settlements/routes.js';
 import { registerCompareRoutes } from './compare/routes.js';
+import { registerAtmAlertRoutes } from './compare/alerts-routes.js';
 
 const ledgerQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -99,6 +100,7 @@ export function buildApp(db: PrismaClient, logger = true, receiptOptions: Receip
   const receipts = new ReceiptService(db, receiptOptions);
   registerSettlementRoutes(app, db);
   registerCompareRoutes(app, db);
+  registerAtmAlertRoutes(app);
   registerReceiptRoutes(app, receipts);
   registerAgentRoutes(app, db, receipts);
   return app;

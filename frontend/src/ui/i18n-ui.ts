@@ -1,5 +1,27 @@
 // UI copy only. Names, IDs, source provenance, user messages and API enums stay original.
 export const ZH_UI: Record<string, string> = Object.fromEntries(`
+Enter a positive plain-decimal target rate.|请输入使用普通十进制数字的正目标汇率。
+ATM & Alerts requires the live Node backend. No frontend fixtures are used.|ATM 与提醒需要实际 Node 后端，不使用前端示例数据。
+Seeded ATM locations, distances and rates are Simulated, not live or based on your device location. Checks do not subscribe to notifications or execute transactions.|ATM 位置、距离与汇率均为预置模拟数据，非实时，也非基于设备位置。检查不会订阅通知或执行交易。
+Server-ranked indicative ATM quotes; use Compare for trusted preview and Save.|后端排序的 ATM 参考报价；请在比较页面进行可信预览与保存。
+Loading ATM options…|正在加载 ATM 方案…
+Refresh ATM options|刷新 ATM 方案
+Illustrative pricing target:|示例定价目标：
+Funded by MYR Funding; no plan or posting created.|使用马币资金账户；不会创建计划或入账。
+No ATM metadata for these inputs. Retry or use Compare; no fixture fallback is used.|这些条件下没有 ATM 元数据。请重试或使用比较页面，不会回退到示例数据。
+m away|米（示例距离）
+Compatibility|兼容性
+unknown|未知
+compatible|兼容（仅限预置数据）
+incompatible|不兼容（仅限预置数据）
+No supporting compatibility evidence.|缺少兼容性证明。
+Provider withdrawal guide (original)|服务商取款指南（原文）
+Check target rate|检查目标汇率
+Checking target rate…|正在检查目标汇率…
+Seeded rate history chart|预置汇率历史图
+Target not reached|尚未达到目标
+Reference estimate before fees:|手续费前的参考估算：
+Provider recommendation (original)|服务商建议（原文）
 Item {value} label|项目 {value} 名称
 Item {value} quantity|项目 {value} 数量
 Item {value} amount ({value} line total)|项目 {value} 金额（{value} 项目总额）

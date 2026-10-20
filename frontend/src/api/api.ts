@@ -10,6 +10,7 @@ export interface BorderWiseApi {
   homeBackend?: T.HomeBackendApi
   agentBackend?: T.AgentBackendApi
   splitBackend?: SplitBackendApi
+  atmAlerts?: T.AtmAlertsApi
   home(): Promise<T.HomeData>
   ledger(limit?: number): Promise<{ items: T.LedgerItem[]; next_cursor: string | null }>
   listPlans(status?: string): Promise<{ items: T.PlanResponse[] }>
@@ -54,6 +55,10 @@ export function liveApi(base: string): BorderWiseApi {
   const debt = (id: string) => `/api/receivables/${encodeURIComponent(id)}`
   return {
     mode: 'live',
+    atmAlerts: {
+      atms: network => req('GET', `/api/atms?card_network=${encodeURIComponent(network)}`),
+      check: input => req('POST', '/api/alerts/check', input),
+    },
     splitBackend: {
       storageNamespace: `borderwise-split:${base || 'same-origin'}:v1`,
       upload: (sid, image) => req('POST', `${a(encodeURIComponent(sid))}/attachments`, undefined, image),
