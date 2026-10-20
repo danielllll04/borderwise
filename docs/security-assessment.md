@@ -1,8 +1,8 @@
-# Security Self-Assessment Report: BorderWise AI (Hackathon MVP)
+# Security Self-Assessment Report: BorderWise 
 
 ## Purpose and scope
 
-BorderWise AI is a local hackathon prototype for planning, reviewing, and recording user-reported travel-money activity. It does not execute bank transfers, card payments, exchanges, or ATM withdrawals. The system uses intentionally simulated comparison, ATM, alert, and OCR data for reproducible evaluation.
+BorderWise is a local hackathon prototype for planning, reviewing, and recording user-reported travel-money activity. It does not execute bank transfers, card payments, exchanges, or ATM withdrawals. The system uses intentionally simulated comparison, ATM, alert, and OCR data for reproducible evaluation.
 
 This assessment describes the security boundaries implemented in the MVP and the controlled limitations that are deliberately deferred to a production phase.
 
@@ -17,16 +17,18 @@ BorderWise separates orchestration, calculation, and financial recording into di
 - The Agent has no tool that can save a plan, cancel a plan, confirm a completion, confirm a shared expense, post a ledger entry, or confirm a repayment.
 - Financial actions require an explicit UI route and validated user-confirmation fields; conversational approval alone is not sufficient.
 - Agent/model output is treated as untrusted input. It cannot choose service URLs, set fees, perform FX calculations, create authoritative allocation amounts, or override reserve checks.
+- This zero-trust design enforces the principle of least privilege; the Agent has only the permissions necessary to read context and orchestrate stateless tools, ensuring strict separation of duties between AI assistance and financial execution.
 
 The Agent may persist its own sessions, messages, and non-financial review/proposal context. That audit/history state is intentionally separate from authoritative financial posting.
 
 ### Tier 2 — Stateless financial engine
 
-- Python FastAPI (Steve) supplies deterministic comparison, ATM/alert, sample OCR, and allocation-preview calculations.
+- Python FastAPI supplies deterministic comparison, ATM/alert, sample OCR, and allocation-preview calculations.
 - The integrated Node workflow calls only side-effect-free Python endpoints for receipt OCR and allocation preview. Python is not connected to the Node/Prisma authoritative ledger.
 - Financial amounts are represented as validated integer minor units. Python request and response schemas use strict Pydantic validation, while Node independently validates currency, identity, totals, and reconciliation invariants before a result can become a trusted proposal.
 - Python’s current OCR is explicitly a deterministic sample fallback. It reports that it did not interpret uploaded image content.
 - Legacy Python-only Split/receivable endpoints are retained for compatibility and diagnostics but are not integrated financial writers. The frontend and Node ledger do not use or replay their state/events.
+- Because Python request schemas use strict Pydantic validation and Node validates identities and totals, adversarial inputs or prompt injection attempts by the user cannot force the financial engine to process malformed or unauthorized data.
 
 This prevents a calculator, OCR result, or allocation preview from becoming a ledger entry by itself.
 
@@ -64,7 +66,7 @@ The system also preserves immutable snapshots and version bindings for reviewed 
 
 ### User session segregation
 
-For hackathon evaluation, BorderWise intentionally uses a stable `DEMO_PROFILE_ID` and local-development ownership checks. This makes the demo reproducible but is not production multi-user authentication or authorization.
+For demo evaluation, BorderWise intentionally uses a stable `DEMO_PROFILE_ID` and local-development ownership checks. This makes the demo reproducible but is not production multi-user authentication or authorization.
 
 - **MVP control:** services are intended to run on loopback, with a single seeded demo profile and scoped session identifiers.
 - **Production roadmap:** replace the stable demo identity with JWT/OAuth2-backed authentication, tenant-scoped database queries, authenticated participant/contact directories, and production storage/access controls.
@@ -81,7 +83,7 @@ The MVP uses locked Node and Python dependencies to keep the evaluation environm
 The prototype uses sanitized fixtures for exchange comparisons, ATM data, alerts, and OCR. This provides reproducible demonstrations without representing seeded data as live market, banking, or merchant information.
 
 - **MVP control:** simulated provenance remains visible, trusted server configuration controls adapter URLs, and response schemas validate bounded external data.
-- **Production roadmap:** use TLS-verified, authenticated live API integrations; add provider onboarding, data freshness/availability monitoring, production CORS policy, and provider-specific reconciliation controls.
+- **Production roadmap:** use TLS-verified, authenticated live API integrations; implement payload signature validation to ensure data integrity in transit, add provider onboarding.
 
 ### Additional controlled MVP boundaries
 
@@ -91,4 +93,4 @@ The prototype uses sanitized fixtures for exchange comparisons, ATM data, alerts
 
 ## Security posture summary
 
-BorderWise prioritizes a conservative financial boundary for the hackathon MVP: the AI can assist but cannot post, Python can calculate but cannot write the Node ledger, and Node posts only after explicit, validated, idempotent user-confirmation workflows. Simulated data is clearly labelled, previews remain side-effect free, and unsupported financial semantics fail safely instead of being inferred.
+BorderWise prioritizes a conservative financial boundary: the AI can assist but cannot post, Python can calculate but cannot write the Node ledger, and Node posts only after explicit, validated, idempotent user-confirmation workflows. Simulated data is clearly labelled, previews remain side-effect free, and unsupported financial semantics fail safely instead of being inferred.
