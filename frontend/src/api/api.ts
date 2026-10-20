@@ -5,6 +5,8 @@ export interface ReceiptInput { paid_from: 'MYR_BANK' | 'KRW_CARD' | 'KRW_CASH';
 /** Every screen talks to this interface only. Swap implementations in createApi(). */
 export interface BorderWiseApi {
   mode: 'live' | 'mock'
+  compare?: T.ManualCompareApi
+  homeBackend?: T.HomeBackendApi
   home(): Promise<T.HomeData>
   ledger(limit?: number): Promise<{ items: T.LedgerItem[]; next_cursor: string | null }>
   listPlans(status?: string): Promise<{ items: T.PlanResponse[] }>
@@ -25,9 +27,15 @@ export interface BorderWiseApi {
   agentProposalSave(sid: string, pid: string, key: string, token: string, ack?: { acknowledged: true; check_token: string }): Promise<T.PlanResponse>
 }
 
-export const uid = () => (crypto as any).randomUUID?.() ?? String(Math.random()).slice(2)
+export const uid = () => globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2)
 
 export function liveApi(base: string): BorderWiseApi {
+  // Public routing only: credentials, query strings and fragments never belong in browser config.
+  if (base) {
+    const url = new URL(base)
+    if (url.username || url.password || url.search || url.hash || !(url.protocol === 'https:' || url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) throw new Error('Use a public HTTPS backend URL or loopback HTTP URL without credentials, query or fragment.')
+    base = url.toString().replace(/\/$/, '')
+  }
   async function req<R>(method: string, path: string, body?: unknown): Promise<R> {
     let res: Response
     try {
@@ -40,6 +48,21 @@ export function liveApi(base: string): BorderWiseApi {
   const a = (sid: string) => `/api/agent/sessions/${sid}`
   return {
     mode: 'live',
+    homeBackend: {
+      summary: () => req('GET', '/api/home'),
+      ledger: cursor => req('GET', `/api/ledger?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+      pending: cursor => req('GET', `/api/plans?status=pending&limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+      assessments: cursor => req('GET', `/api/plans/assessments?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+      readPlan: id => req('GET', `/api/plans/${encodeURIComponent(id)}`),
+      preview: (id, actual) => req('POST', `/api/plans/${encodeURIComponent(id)}/completion-preview`, { actual }),
+      confirm: (id, input) => req('POST', `/api/plans/${encodeURIComponent(id)}/confirm`, input),
+      cancel: id => req('POST', `/api/plans/${encodeURIComponent(id)}/cancel`, {}),
+    },
+    compare: {
+      quotes: input => req('POST', '/api/compare/quotes', input),
+      preview: (sid, pid) => req('POST', `${a(sid)}/proposals/${pid}/preview`, {}),
+      save: (sid, pid, key, token, ack) => req('POST', `${a(sid)}/proposals/${pid}/save`, { frontend_action: 'save_pending_plan', idempotency_key: key, preview_token: token, ...(ack ? { reserve_acknowledgement: ack } : {}) }),
+    },
     home: () => req('GET', '/api/home'),
     ledger: (l = 20) => req('GET', `/api/ledger?limit=${l}`),
     listPlans: s => req('GET', `/api/plans${s ? `?status=${s}` : ''}`),

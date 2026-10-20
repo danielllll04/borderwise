@@ -7,7 +7,8 @@ import { HomeService } from '../services/home.js';
 import { PlanService } from '../services/plans.js';
 import { availableDestinationBalance } from '../services/available-balances.js';
 import { selectionSchema, type Selection } from '../services/plan-inputs.js';
-import { validateComparison, type CompareAdapter, type ComparisonOption } from './compare.js';
+import type { CompareAdapter, ComparisonOption } from './compare.js';
+import { readComparison } from '../integrations/comparison-service.js';
 import type { AgentCard, ProposalCard } from './contracts.js';
 import type { ToolDefinition } from './model.js';
 import type { Understanding } from './decision.js';
@@ -193,7 +194,7 @@ export class AgentTools {
           const alternative = availableDestinationBalance(home.data, this.understanding.decision);
           if (alternative) this.cards.push({ type: 'existing_balance_alternative', ...alternative });
         }
-        const result = validateComparison(await this.compare.compare(this.understanding.decision), this.understanding.decision);
+        const result = await readComparison(this.compare, this.understanding.decision);
         if (result.status !== 'ready') { this.cards.push({ type: 'comparison_unavailable', ...result }); return { kind: 'comparison_unavailable', status: result.status }; }
         const options: Extract<AgentCard, { type: 'quote_comparison' }>['options'] = [];
         for (const option of result.options) {

@@ -1,6 +1,6 @@
 # Priority 3 API handoff
 
-This backend records activity completed elsewhere. No endpoint initiates a financial transfer, exchange, purchase or withdrawal. No frontend is included. Authentication is still absent: use loopback and the seeded demo profile only. Priority 5 now provides a read/preview Agent; see [its separate handoff](agent.md).
+This backend records activity completed elsewhere. No endpoint initiates a financial transfer, exchange, purchase or withdrawal. Manual Compare and Home now consume these existing APIs; see [Home completion, cancellation and observed UI verification](home-integration.md). Authentication is still absent: use loopback and the seeded demo profile only. Priority 5 now provides a read/preview Agent; see [its separate handoff](agent.md).
 
 [Pending-plan risk reassessment](pending-plan-risk.md) is available separately through `GET /api/plans/assessments`, Home and an Agent read tool. It preserves saved Plan.status, reserve_breached, quotes and acknowledgement snapshots. A successful completion adds `pending_plan_follow_up` directing the frontend to a separate GET; optional assessment failure cannot misreport or undo that financial posting. Insufficient-funds forecasts do not weaken completion validation.
 

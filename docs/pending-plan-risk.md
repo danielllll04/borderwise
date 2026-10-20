@@ -1,5 +1,7 @@
 # Deterministic pending-plan risk
 
+The [connected Home frontend](home-integration.md) now displays these independent forecasts separately from the actual current MYR budget. Completion/cancellation refresh the existing read APIs; a read failure cannot turn a committed completion into a failed payment. Saved quote warnings remain explicitly historical.
+
 Current risk is a read response, separate from saved Plan.status, Plan.reserve_breached, quote snapshots and historical acknowledgements. `PendingPlanRiskService` evaluates **pending** plans on demand against recorded account balances and reserves. It neither reserves funds nor writes assessment records, plans, accounts or ledger entries. Completed/cancelled plans are excluded. No migration, background task or cache is required.
 
 The service reuses `quoteActivity`, Priority 3 `assessActivity`, ledger projection and existing budget arithmetic. A read-only projection can describe a negative result; the existing prepare/post path still rejects negative balances. The saved quote's amounts, source badge and timestamp are preserved. The quote remains a historical quote, not proof that an offer is still available.

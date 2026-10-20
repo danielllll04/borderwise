@@ -1,102 +1,127 @@
-import { useEffect, useState } from 'react'
-import type { HomeData, LedgerItem, PlanResponse, ActualActivity, Assessment, AccountId, Money } from '@/api/types'
-import { Amount, Badge, Btn, Card, Err, Modal, Title, Warn, fmt, stamp } from './kit'
+import { useEffect, useRef, useState } from 'react'
+import type { BalanceItem, HomeData, LedgerItem, Page, PendingRisk, PlanResponse, RiskPage } from '@/api/types'
+import { Amount, Badge, Btn, Card, Err, Title, Warn, fmt, stamp } from './kit'
 import { useApp } from './ctx'
-import { uid } from '@/api/api'
+import PlanCompletion from './PlanCompletion'
 
-const LABEL: Record<string, string> = { income: 'Income', expense: 'Receipt expense', exchange: 'Currency exchange', atm_withdrawal: 'ATM withdrawal', fee: 'Fee', settlement: 'Shared expense settlement' }
+const LABEL: Record<string, string> = { income: 'Income', expense: 'Receipt expense', shared_expense: 'Shared bill payment', exchange: 'Currency exchange', atm_withdrawal: 'ATM withdrawal', fee: 'Fee', settlement: 'Shared expense settlement' }
 const ACC: Record<string, string> = { myr_funding: 'MYR Funding', krw_card: 'KRW Card', krw_cash: 'KRW Cash' }
+type Remote<T> = { data: T | null; error: unknown; version: string }
+
+function useRead<T>(read: (() => Promise<T>) | undefined, version: string) {
+  const [state, setState] = useState<Remote<T>>({ data: null, error: null, version: '' })
+  useEffect(() => {
+    let active = true
+    if (read) void read().then(data => { if (active) setState({ data, error: null, version }) }).catch(error => { if (active) setState(old => ({ ...old, error, version })) })
+    return () => { active = false }
+  }, [read, version])
+  return { ...state, loading: state.version !== version, setState }
+}
+function usePage<T, R extends Page<T>>(read: ((cursor?: string) => Promise<R>) | undefined, version: string, key: (item: T) => string) {
+  const result = useRead<R>(read, version), inFlight = useRef(false)
+  const [moreBusy, setMoreBusy] = useState(false)
+  const more = async () => {
+    const cursor = result.data?.next_cursor
+    if (!read || !cursor || inFlight.current || result.loading) return
+    inFlight.current = true; setMoreBusy(true)
+    try {
+      const next = await read(cursor)
+      result.setState(old => old.version !== version || !old.data ? old : { data: { ...next, items: [...new Map([...old.data.items, ...next.items].map(item => [key(item), item])).values()] }, error: null, version })
+    } catch (error) { result.setState(old => old.version === version ? { ...old, error } : old) }
+    finally { inFlight.current = false; setMoreBusy(false) }
+  }
+  return { ...result, more, moreBusy }
+}
+function ReadStatus({ loading, error, cached }: { loading: boolean; error: unknown; cached: boolean }) {
+  return <>{loading && <p role="status" className="text-xs text-ink/55">{cached ? 'Refreshing read — previous snapshot remains below.' : 'Loading authoritative records…'}</p>}{Boolean(error) && <><Warn>{cached ? 'Read unavailable. Showing the last successful snapshot. Refresh reads; do not repeat a successful financial confirmation.' : 'Read unavailable. Retry this read; no missing values are assumed to be zero.'}</Warn><Err e={error} /></>}</>
+}
 
 export default function Home() {
-  const { api, rev, bump, t, lang } = useApp()
-  const [h, setH] = useState<HomeData | null>(null), [led, setLed] = useState<LedgerItem[]>([]), [plans, setPlans] = useState<PlanResponse[]>([])
-  const [err, setErr] = useState<any>(null), [confirming, setConfirming] = useState<PlanResponse | null>(null)
-  useEffect(() => { Promise.all([api.home(), api.ledger(), api.listPlans('pending')]).then(([a, b, c]) => { setH(a); setLed(b.items); setPlans(c.items); setErr(null) }).catch(setErr) }, [rev, api])
-  if (!h) return <div className="p-6 text-sm text-ink/60">{err ? <Err e={err} /> : 'Loading your profile…'}</div>
-  const bal = (id: AccountId) => h.balances.find(b => b.account_id === id)!
-  const RATE = 310, krw = bal('krw_card').balance.Money.amount_minor + bal('krw_cash').balance.Money.amount_minor
-  const totalSen = bal('myr_funding').balance.Money.amount_minor + Math.round(krw / RATE * 100)
-  const ok = totalSen >= h.budget.total_reserve.Money.amount_minor
-  const groups = led.reduce<Record<string, LedgerItem[]>>((m, i) => ((m[i.activity_id] ||= []).push(i), m), {})
-  const fixed = h.profile.fixed_expense_reserve.Money.amount_minor, emerg = h.profile.emergency_reserve.Money.amount_minor
-  const avail = Math.max(0, h.budget.available_above_reserve.Money.amount_minor), total = Math.max(1, avail + fixed + emerg)
+  const { api, rev, bump, t } = useApp(), backend = api.homeBackend
+  const [retry, setRetry] = useState(0), [message, setMessage] = useState(''), [actionError, setActionError] = useState<unknown>(null)
+  const [confirming, setConfirming] = useState<PlanResponse | null>(null), [resolved, setResolved] = useState(() => new Set<string>())
+  const [cancelling, setCancelling] = useState(() => new Set<string>()), cancellationRequests = useRef(new Set<string>())
+  const version = `${rev}:${retry}`
+  const home = useRead<HomeData>(backend?.summary, version)
+  const ledger = usePage<LedgerItem, Page<LedgerItem>>(backend?.ledger, version, item => item.entry.entry_id)
+  const pending = usePage<PlanResponse, Page<PlanResponse>>(backend?.pending, version, item => item.plan.plan_id)
+  const risks = usePage<PendingRisk, RiskPage>(backend?.assessments, version, item => item.plan_id)
+  const finish = (id: string, notice: string) => { setResolved(old => new Set(old).add(id)); setConfirming(null); setMessage(notice); setActionError(null); bump() }
+  const cancel = async (plan: PlanResponse) => {
+    if (!backend || cancellationRequests.current.has(plan.plan.plan_id)) return
+    const id = plan.plan.plan_id
+    cancellationRequests.current.add(id); setCancelling(old => new Set(old).add(id)); setActionError(null)
+    try { await backend.cancel(id); finish(id, 'Plan cancelled successfully. Only plan status changed; no financial posting occurred. Home refreshes separately.') }
+    catch (e) { setActionError(e) }
+    finally { cancellationRequests.current.delete(id); setCancelling(old => { const next = new Set(old); next.delete(id); return next }) }
+  }
+  if (!backend) return <div className="space-y-3 p-4"><Warn>Authoritative Home requires the Node backend. Explicit mock mode is not connected to financial confirmation. Start Node and select live API mode.</Warn></div>
+  const h = home.data, plans = pending.data?.items.filter(p => !resolved.has(p.plan.plan_id)) ?? []
+  const groups = (ledger.data?.items ?? []).reduce<Record<string, LedgerItem[]>>((all, item) => { (all[item.activity_id] ??= []).push(item); return all }, {})
+  const disabled = home.loading || Boolean(home.error) || pending.loading || Boolean(pending.error) || cancelling.size > 0
   return <div className="pb-6">
     <div className="rounded-b-3xl bg-coral px-5 pb-6 pt-5 text-white">
-      <p className="text-xs font-semibold opacity-80">Hi {h.profile.display_name}</p>
+      <p className="text-xs font-semibold opacity-80">{h ? `Hi ${h.profile.display_name}` : 'Home'}</p>
       <h1 className="text-2xl font-extrabold leading-tight">Your money.<br />Across borders.</h1>
     </div>
     <div className="-mt-4 space-y-3 px-4">
-      <div className={`rounded-2xl p-4 text-white ${ok ? 'bg-emerald-600' : 'bg-red-600'}`}>
-        <div className="text-xs font-semibold opacity-90">{t('Total across all 3 accounts')}</div>
-        <div className="text-3xl font-extrabold tracking-tight">{fmt({ amount_minor: totalSen, currency: 'MYR' })}</div>
-        <div className="mt-1 text-sm font-semibold">{ok ? (lang === 'zh' ? '高于你设定的储备金 ' : 'Above your stated reserve of ') : (lang === 'zh' ? '低于你设定的储备金 ' : 'Below your stated reserve of ')}{fmt(h.budget.total_reserve.Money)}</div>
-        <div className="mt-1 text-[10px] opacity-80">MYR + (KRW card + KRW cash) ÷ 310 · Indicative · seeded rate RM 1 = ₩ 310 · {stamp(h.budget.badge.timestamp)}</div>
-      </div>
-      <Card><div className="text-xs text-ink/60">{t("MYR Funding Balance")}</div><Amount v={bal('myr_funding').balance} big /><p className="mt-1 text-[11px] text-ink/50">Malaysian bank/card funding, allowances, scholarships</p></Card>
-      <div className="grid grid-cols-2 gap-3">
-        <Card><div className="text-xs text-ink/60">{t("KRW Card Balance")}</div><Amount v={bal('krw_card').balance} big /></Card>
-        <Card><div className="text-xs text-ink/60">{t("KRW Cash-on-Hand")}</div><Amount v={bal('krw_cash').balance} big /></Card>
-      </div>
-      <Card>
-        <Title sub="Your own allocations — not verified bank data">{t('Stated budget &amp; reserves')}</Title>
-        <div className="flex h-3 overflow-hidden rounded-full bg-ink/10">
-          <div className="bg-emerald-500" style={{ width: `${avail / total * 100}%` }} /><div className="bg-cobalt" style={{ width: `${fixed / total * 100}%` }} /><div className="bg-coral" style={{ width: `${emerg / total * 100}%` }} /></div>
-        <ul className="mt-3 space-y-1 text-sm">
-          <Leg c="bg-emerald-500" k={t("Available within plan")} v={fmt(h.budget.available_above_reserve.Money)} />
-          <Leg c="bg-cobalt" k={t("Stated fixed expenses reserve")} v={fmt(h.profile.fixed_expense_reserve.Money)} />
-          <Leg c="bg-coral" k={t("Stated emergency reserve")} v={fmt(h.profile.emergency_reserve.Money)} /></ul>
-        <div className="mt-2"><Badge b={h.profile.fixed_expense_reserve.badge} /></div>
-      </Card>
-      <Title sub="Saved plans — balances unchanged until you confirm">{t('Pending / planned')}</Title>
-      {plans.length === 0 && <p className="rounded-xl border border-dashed border-ink/20 p-4 text-center text-xs text-ink/50">No pending plans. Pick an option in Compare.</p>}
-      {plans.map(p => <Card key={p.plan.plan_id}>
-        <div className="flex justify-between"><div><div className="font-bold">{p.plan.quote.provider}</div><div className="text-xs text-ink/55">{p.plan.quote.objective === 'atm_withdrawal' ? 'ATM withdrawal' : 'Exchange'}</div></div>
-          <div className="text-right text-sm"><div className="font-bold">{fmt(p.plan.quote.total_debit)}</div><div className="text-ink/60">→ {fmt(p.plan.quote.net_received)}</div></div></div>
-        <div className="mt-1 flex items-center gap-2"><Badge b={p.plan.quote.badge} />{p.plan.reserve_breached && <span className="rounded-full bg-amber-100 px-2 text-[11px] font-semibold text-amber-800">Reserve overridden</span>}</div>
-        <div className="mt-3 flex gap-2"><Btn className="flex-1" onClick={() => setConfirming(p)}>Confirm Completion</Btn><Btn kind="outline" onClick={async () => { await api.cancelPlan(p.plan.plan_id); bump() }}>Cancel Plan</Btn></div>
+      {message && <div role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</div>}
+      <Card><ReadStatus loading={home.loading} error={home.error} cached={Boolean(h)} /><Btn kind="outline" onClick={() => setRetry(n => n + 1)}>Refresh Home reads</Btn></Card>
+      {h && <>
+        <div className={`rounded-2xl p-4 text-white ${h.budget.status === 'Below reserve' ? 'bg-red-600' : h.budget.status === 'At reserve' ? 'bg-amber-600' : 'bg-emerald-600'}`}>
+          <div className="text-xs font-semibold opacity-90">{home.loading || home.error ? 'Last successfully read MYR budget' : 'Current recorded MYR budget'}</div>
+          <div className="text-2xl font-extrabold">{h.budget.status}</div>
+          <div className="mt-1 text-sm">Available above reserve: {fmt(h.budget.available_above_reserve.Money)}</div>
+          <div className="mt-2"><Badge b={h.budget.badge} /></div>
+          <p className="mt-2 text-xs">MYR Funding only. KRW balances and pending-plan forecasts are separate; currencies are not converted or combined.</p>
+        </div>
+        <BalanceCard label={t('MYR Funding Balance')} balance={h.balances.find(b => b.account_id === 'myr_funding')} />
+        <div className="grid grid-cols-2 gap-3"><BalanceCard label={t('KRW Card Balance')} balance={h.balances.find(b => b.account_id === 'krw_card')} /><BalanceCard label={t('KRW Cash-on-Hand')} balance={h.balances.find(b => b.account_id === 'krw_cash')} /></div>
+        <Card>
+          <Title sub="Your stated allocations — recorded values, not verified bank data">Stated budget &amp; reserves</Title>
+          <div aria-hidden="true" className="flex h-3 overflow-hidden rounded-full"><div className="flex-1 bg-emerald-500" /><div className="flex-1 bg-cobalt" /><div className="flex-1 bg-coral" /></div>
+          <p className="mt-1 text-[10px] text-ink/50">Category colours only; not a calculated allocation chart.</p>
+          <div className="mt-3 space-y-3 text-sm"><MoneyRow label="Available above reserve" value={h.budget.available_above_reserve} /><MoneyRow label="Stated fixed expenses reserve" value={h.profile.fixed_expense_reserve} /><MoneyRow label="Stated emergency reserve" value={h.profile.emergency_reserve} /><MoneyRow label="Total stated reserve" value={h.budget.total_reserve} /><MoneyRow label="Current reserve shortfall" value={h.budget.reserve_shortfall} /></div>
+        </Card>
+      </>}
+      <Title sub="A projection for each plan independently — not the actual current budget">Pending-plan forecast</Title>
+      <ReadStatus loading={risks.loading} error={risks.error} cached={Boolean(risks.data)} />
+      {risks.data && <p className="text-xs text-ink/60">{risks.data.notice}</p>}
+      {risks.data && risks.data.items.filter(r => !resolved.has(r.plan_id)).map(r => <Card key={r.plan_id} className="space-y-2 text-sm">
+        <div className="font-bold">{r.state}</div><p>{r.reason.message}</p><p className="break-all text-[10px] text-ink/50">Plan {r.plan_id} · assessed {stamp(r.assessed_at)}</p>
+        {r.quote && <Badge b={r.quote.badge} />}
+        {r.preview?.projected_reserve_shortfall && <MoneyRow label="Forecast MYR reserve shortfall" value={r.preview.projected_reserve_shortfall} />}
+        {r.preview?.other_account_reserve_check?.projected_reserve_shortfall && <MoneyRow label="Forecast separate-account MYR shortfall" value={r.preview.other_account_reserve_check.projected_reserve_shortfall} />}
+        {r.projected_deficits.map(d => <MoneyRow key={d.account_id} label={`Forecast account deficit · ${ACC[d.account_id] ?? d.account_id}`} value={d.deficit} />)}
       </Card>)}
+      {risks.data && !risks.data.items.filter(r => !resolved.has(r.plan_id)).length && !risks.loading && !risks.error && <p className="text-xs text-ink/55">No pending-plan assessments on this page.</p>}
+      {risks.data?.next_cursor && <Btn kind="outline" disabled={risks.moreBusy || risks.loading} onClick={() => void risks.more()}>{risks.moreBusy ? 'Loading…' : 'Load more assessments'}</Btn>}
+      <Title sub="Historical saved quotes; no funds are reserved until actual completion is recorded">{t('Pending / planned')}</Title>
+      <ReadStatus loading={pending.loading} error={pending.error} cached={Boolean(pending.data)} />
+      <Err e={actionError} />
+      {pending.data && !plans.length && !pending.loading && !pending.error && <p className="rounded-xl border border-dashed border-ink/20 p-4 text-center text-xs text-ink/50">No pending plans on this page. Pick an option in Compare.</p>}
+      {plans.map(p => {
+        const supported = ['exchange', 'atm_withdrawal'].includes(p.plan.quote.objective) && h?.balances.some(v => v.account_id === p.plan.quote.funding_source) && h.balances.some(v => v.account_id === p.context.destination_account)
+        return <Card key={p.plan.plan_id}>
+          <div className="flex justify-between"><div><div className="font-bold">{p.plan.quote.provider}</div><div className="text-xs text-ink/55">{p.plan.quote.objective === 'atm_withdrawal' ? 'ATM withdrawal' : p.plan.quote.objective}</div></div><div className="text-right text-sm"><b>{fmt(p.plan.quote.total_debit)}</b><div>→ {fmt(p.plan.quote.net_received)}</div></div></div>
+          <Badge b={p.plan.quote.badge} />{p.plan.reserve_breached && <p className="mt-1 text-xs text-amber-800">Reserve warning acknowledged when saved (historical).</p>}
+          {!supported && <p className="text-xs text-ink/55">Completion unavailable for this objective or missing owned account. No substitute posting is supported.</p>}
+          <div className="mt-3 flex gap-2"><Btn className="flex-1" disabled={disabled || !supported} onClick={() => setConfirming(p)}>Confirm Completion</Btn><Btn kind="outline" disabled={disabled} onClick={() => void cancel(p)}>{cancelling.has(p.plan.plan_id) ? 'Cancelling…' : 'Cancel Plan'}</Btn></div>
+        </Card>
+      })}
+      {pending.data?.next_cursor && <Btn kind="outline" disabled={pending.moreBusy || pending.loading} onClick={() => void pending.more()}>{pending.moreBusy ? 'Loading…' : 'Load more pending plans'}</Btn>}
       <Title>Confirmed ledger</Title>
-      {Object.entries(groups).map(([id, items]) => <Card key={id} className="space-y-2">{items.map(i => <div key={i.entry.entry_id} className="border-b border-ink/5 pb-2 last:border-0 last:pb-0">
-        <div className="flex items-center justify-between text-sm font-bold"><span>{LABEL[i.entry.type]}{i.entry.type === 'fee' && ' (expense)'}</span></div>
-        {i.entry.lines.map((l, k) => <div key={k} className="flex justify-between text-sm"><span className="text-ink/60">{ACC[l.account] ?? l.account}</span><span className={l.Money.amount_minor < 0 ? 'text-red-600' : 'text-emerald-700'}>{fmt(l.Money, true)}</span></div>)}
-        <Badge b={i.entry.badge} /></div>)}</Card>)}
+      <ReadStatus loading={ledger.loading} error={ledger.error} cached={Boolean(ledger.data)} />
+      {ledger.data && !ledger.data.items.length && !ledger.loading && !ledger.error && <p className="text-xs text-ink/55">No confirmed ledger entries on this page.</p>}
+      {Object.entries(groups).map(([id, items]) => <Card key={id} className="space-y-2">{items.map(item => <div key={item.entry.entry_id} className="border-b border-ink/5 pb-2 last:border-0 last:pb-0"><div className="text-sm font-bold">{LABEL[item.entry.type] ?? item.entry.type}{item.entry.type === 'fee' ? ' (separate debit)' : ''}</div>{item.entry.lines.map((line, i) => <div key={i} className="flex justify-between text-sm"><span className="text-ink/60">{ACC[line.account] ?? line.account}</span><span>{fmt(line.Money, true)}</span></div>)}<Badge b={item.entry.badge} /></div>)}</Card>)}
+      {ledger.data?.next_cursor && <Btn kind="outline" disabled={ledger.moreBusy || ledger.loading} onClick={() => void ledger.more()}>{ledger.moreBusy ? 'Loading…' : 'Load more ledger entries'}</Btn>}
     </div>
-    {confirming && <ModalB plan={confirming} onClose={() => setConfirming(null)} onDone={() => { setConfirming(null); bump() }} />}
+    {confirming && h && <PlanCompletion key={confirming.plan.plan_id} api={backend} plan={confirming} accounts={h.balances} onClose={() => { setConfirming(null); bump() }} onDone={notice => finish(confirming.plan.plan_id, notice)} />}
   </div>
 }
-const Leg = ({ c, k, v }: { c: string; k: string; v: string }) => <li className="flex items-center justify-between"><span className="flex items-center gap-2"><i className={`h-2.5 w-2.5 rounded-full ${c}`} />{k}</span><b>{v}</b></li>
-
-/** Modal B — editable actuals, pre-filled from the quote. Ledger only changes on Confirm. */
-function ModalB({ plan, onClose, onDone }: { plan: PlanResponse; onClose: () => void; onDone: () => void }) {
-  const { api } = useApp(), q = plan.plan.quote, atm = q.objective === 'atm_withdrawal'
-  const [from, setFrom] = useState<AccountId>(q.funding_source as AccountId)
-  const [paid, setPaid] = useState(String(q.principal.amount_minor / 100)), [fee, setFee] = useState(String(q.fees.reduce((s, f) => s + f.Money.amount_minor, 0) / 100))
-  const [got, setGot] = useState(String(q.net_received.amount_minor))
-  const [err, setErr] = useState<any>(null), [ack, setAck] = useState<Assessment | null>(null), [key] = useState(uid), [at] = useState(new Date().toISOString())
-  const cur = from === 'myr_funding' ? 'MYR' : 'KRW'
-  const minor = (v: string) => Math.round(Number(v) * (cur === 'MYR' ? 100 : 1))
-  const actual = (): ActualActivity => ({
-    activity_type: atm ? 'atm_withdrawal' : 'exchange', funding_account: from, destination_account: plan.context.destination_account,
-    principal: { amount_minor: minor(paid), currency: cur }, amount_received: { amount_minor: Math.round(Number(got)), currency: 'KRW' },
-    fees: [{ label: 'Actual fee charged', account_id: from, Money: { amount_minor: minor(fee), currency: cur } as Money }], completed_at: at })
-  const submit = async () => {
-    setErr(null)
-    try {
-      const pv = await api.completionPreview(plan.plan.plan_id, actual())
-      if (pv.requires_reserve_acknowledgement && !ack) { setAck(pv); return }
-      await api.confirmPlan(plan.plan.plan_id, actual(), key, ack ? { acknowledged: true, check_token: ack.check_token } : undefined); onDone()
-    } catch (e: any) { setErr(e) }
-  }
-  const F = ({ l, v, set }: { l: string; v: string; set: (s: string) => void }) => <label className="block text-sm"><span className="text-ink/60">{l}</span><input inputMode="decimal" value={v} onChange={e => { set(e.target.value); setAck(null) }} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3 font-semibold" /></label>
-  return <Modal title="Did you complete this?" onClose={onClose}>
-    <p className="mb-3 text-sm text-ink/60">Confirm or adjust the final figures. Prefilled from the quote (<Badge b={q.badge} meta={false} />).</p>
-    <div className="space-y-3">
-      <label className="block text-sm"><span className="text-ink/60">Funding account debited</span><select value={from} onChange={e => setFrom(e.target.value as AccountId)} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3 font-semibold"><option value="myr_funding">MYR Funding Balance</option>{atm && <option value="krw_card">KRW Card Balance</option>}</select></label>
-      <F l={`Actual amount paid, excl. fee (${cur})`} v={paid} set={setPaid} /><F l={`Actual fee charged (${cur})`} v={fee} set={setFee} />
-      <F l={`Actual amount received (₩ → ${plan.context.destination_account === 'krw_cash' ? 'KRW Cash' : 'KRW Card'})`} v={got} set={setGot} /></div>
-    {ack && <div className="mt-3"><Warn>Your actual figures take MYR Funding below your stated reserve. Press confirm again to acknowledge and record it.</Warn></div>}
-    <Err e={err} />
-    <div className="mt-4 space-y-2"><Btn className="w-full" onClick={submit}>{ack ? 'Acknowledge & Update Ledger' : 'Confirm & Update Ledger'}</Btn><Btn kind="outline" className="w-full" onClick={onClose}>Not Completed Yet</Btn></div>
-    <p className="mt-2 text-[11px] text-ink/50">Writes the entry with a User-Confirmed badge.</p>
-  </Modal>
+function MoneyRow({ label, value }: { label: string; value: import('@/api/types').FV }) {
+  return <div className="flex items-start justify-between gap-3"><span className="text-ink/60">{label}</span><div className="min-w-0 text-right"><Amount v={value} /></div></div>
+}
+function BalanceCard({ label, balance }: { label: string; balance?: BalanceItem }) {
+  return <Card><div className="text-xs text-ink/60">{label}</div>{balance ? <Amount v={balance.balance} big /> : <p>Account read unavailable.</p>}</Card>
 }

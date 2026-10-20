@@ -18,7 +18,7 @@ export interface Selection {
 export interface Plan { plan_id: string; quote: Quote; status: 'pending' | 'completed' | 'cancelled'; reserve_breached: boolean }
 export interface PlanResponse { plan: Plan; context: Selection['context']; created_at: string; updated_at: string }
 export interface LedgerEntry {
-  entry_id: string; type: 'income' | 'expense' | 'exchange' | 'atm_withdrawal' | 'fee' | 'settlement'
+  entry_id: string; type: 'income' | 'expense' | 'shared_expense' | 'exchange' | 'atm_withdrawal' | 'fee' | 'settlement'
   lines: { account: string; Money: Money }[]; badge: Badge
 }
 export interface LedgerItem { entry: LedgerEntry; activity_id: string; created_at: string }
@@ -40,6 +40,7 @@ export interface Assessment {
   current_balance: FV; projected_balance: FV; total_reserve: FV; projected_reserve_shortfall: FV
   total_debit: FV; amount_received: FV; principal: FV
   requires_reserve_acknowledgement: boolean
+  reserve_check?: { max_safe_total_debit: FV | null }
   safe_principal: { status: 'available' | 'no_positive_principal' | 'revised_quote_required' | 'not_applicable'; amount: FV | null; reason: string }
   checked_at?: string
 }
@@ -71,5 +72,67 @@ export interface AgentDecision {
   funding_account?: AccountId; destination_account?: AccountId
 }
 export class ApiError extends Error {
-  constructor(public code: string, message: string, public details?: any, public status = 0) { super(message) }
+  code: string
+  details?: unknown
+  status: number
+  constructor(code: string, message: string, details?: unknown, status = 0) {
+    super(message); this.code = code; this.details = details; this.status = status
+  }
+}
+export interface CompareRequest {
+  objective: 'exchange' | 'atm_withdrawal' | 'card'
+  amount: Money; amount_basis: 'total_debit_budget' | 'destination_target'
+  funding_account: AccountId; destination_account: AccountId; card_network?: string
+}
+export interface CompareOption extends AgentOption {
+  proposal_id: string | null
+  compatibility?: { status: 'unknown'; reason: string } | { status: 'compatible' | 'incompatible'; card_network: string; evidence: { source: string; timestamp: string } }
+  atm_info?: { bank_name: string; location_name: string; supported_networks: string[] }
+}
+export type CompareResult = { status: 'ready'; session_id: string; source: string; ranking: string; options: CompareOption[] }
+  | { status: 'unsupported' | 'requote_required'; reason: string; options: [] }
+export interface ProposalPreview { proposal_id: string; quote_id: string; selection: Selection; preview: Assessment }
+export interface ManualCompareApi {
+  quotes(input: CompareRequest): Promise<CompareResult>
+  preview(sessionId: string, proposalId: string): Promise<ProposalPreview>
+  save(sessionId: string, proposalId: string, key: string, token: string, ack?: { acknowledged: true; check_token: string }): Promise<PlanResponse>
+}
+
+// Home wrappers mirror existing Node read/completion APIs; shared financial contracts are unchanged.
+export interface Page<T> { items: T[]; next_cursor: string | null }
+export interface ReserveImpact {
+  applicability: 'applicable' | 'not_applicable'; reason: string
+  current_balance: FV | null; total_debit: FV | null; projected_balance: FV | null
+  total_reserve: FV | null; projected_reserve_shortfall: FV | null; max_safe_total_debit: FV | null
+}
+export interface AccountImpact { account_id: AccountId; current_balance: FV; total_debits: FV; total_credits: FV; projected_balance: FV }
+export interface Difference { quoted: FV; actual: FV; currency_changed: boolean; difference: FV | null }
+export interface CompletionAssessment extends Omit<Assessment, 'total_reserve' | 'projected_reserve_shortfall' | 'reserve_check'> {
+  total_reserve: FV | null; projected_reserve_shortfall: FV | null
+  reserve_check: ReserveImpact; other_account_reserve_check: ReserveImpact | null
+  account_impacts: AccountImpact[]
+  differences: {
+    principal: Difference; total_debit: Difference; amount_received: Difference
+    fees: { quoted: ({label: string; account_id: AccountId} & FV)[]; actual: ({label: string; account_id: AccountId} & FV)[]; changed: boolean }
+    funding_account: {quoted: AccountId; actual: AccountId; changed: boolean}
+    destination_account: {quoted: AccountId; actual: AccountId; changed: boolean}
+  }
+}
+export interface PendingRisk {
+  plan_id: string; state: 'Within reserve' | 'Would breach reserve' | 'Insufficient tracked funds' | 'Reserve check not applicable' | 'Cannot assess'
+  reason: {code: string; message: string}; assessed_at: string
+  quote: {quote_id: string; badge: Badge} | null
+  projected_deficits: {account_id: string; deficit: FV}[]
+  preview: {projected_reserve_shortfall: FV | null; other_account_reserve_check: ReserveImpact | null} | null
+}
+export interface RiskPage extends Page<PendingRisk> { status: 'available'; notice: string; assessed_at: string }
+export interface HomeBackendApi {
+  summary(): Promise<HomeData>
+  ledger(cursor?: string): Promise<Page<LedgerItem>>
+  pending(cursor?: string): Promise<Page<PlanResponse>>
+  assessments(cursor?: string): Promise<RiskPage>
+  readPlan(id: string): Promise<PlanResponse>
+  preview(id: string, actual: ActualActivity): Promise<CompletionAssessment>
+  confirm(id: string, input: {actual: ActualActivity; confirmed: true; idempotency_key: string; reserve_acknowledgement?: {acknowledged: true; check_token: string}}): Promise<unknown>
+  cancel(id: string): Promise<PlanResponse>
 }
