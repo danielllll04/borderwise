@@ -33,6 +33,7 @@ export interface BillConfirmation {
   receipt_review_acknowledged: true; allocation_review_acknowledged: true
 }
 export interface BillResult {
+  paid_at?: string
   activity_id: string; receipt_proposal_id?: string; ledger_entry_ids: string[]
   bill_total: FV; recorded_debit: FV; personal_expense: FV; receivables_total: FV
   provenance: Badge; balances: BalanceItem[]

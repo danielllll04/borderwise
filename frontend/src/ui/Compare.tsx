@@ -1,7 +1,7 @@
 import UI from './i18n-view'
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, type AccountId, type CompareOption, type CompareRequest, type CompareResult, type ManualCompareApi, type ProposalPreview } from '@/api/types'
-import { Badge, Btn, Card, Err, Modal, Title, Warn, fmt } from './kit'
+import { Badge, Btn, Card, Details, Err, Modal, Title, Warn, fmt } from './kit'
 import { ComparisonCard } from './shared'
 import { useApp } from './ctx'
 
@@ -59,14 +59,14 @@ function PlanReview({ api, sessionId, option, attempts, onClose, onDone, onRevis
         {([['Reported MYR balance', a.current_balance], ['Stated protected reserves', a.total_reserve], ['Planned total debit (principal + fees)', a.total_debit], ['Projected balance after plan', a.projected_balance]] as const).map(([label, value]) => <div key={label} className="flex justify-between gap-3"><span><UI text={label} /></span><div className="text-right"><b>{fmt(value.Money)}</b><Badge b={value.badge} /></div></div>)}
         {a.requires_reserve_acknowledgement && <p className="font-semibold text-amber-700">{fmt(a.projected_reserve_shortfall.Money)} <UI text=" below your stated reserve" /></p>}
       </Card>
-      <p className="mt-3 text-xs text-ink/55"><UI text="Save records a pending plan. It does not reserve funds, change balances or post ledger activity." /></p>
+      <p className="mt-3 text-xs text-ink/55"><UI text="Saving a plan does not deduct or set aside money." /></p>
       {a.requires_reserve_acknowledgement && <label className="mt-3 flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={acknowledged} disabled={busy} onChange={e => setAcknowledged(e.target.checked)} /><UI text="I acknowledge this reserve warning for the displayed amounts." /></label>}
     </>}
     <Err e={error} />
     <div className="mt-4 space-y-2">
       {!a && Boolean(error) && <Btn className="w-full" onClick={() => { setError(null); setRefresh(r => r + 1) }}><UI text="Retry preview" /></Btn>}
       {safe && safe.Money.currency === 'MYR' && safe.Money.amount_minor > 0 && a?.requires_reserve_acknowledgement && <Btn kind="outline" disabled={busy} className="w-full" onClick={() => onRevise(safe.Money.amount_minor)}><UI text="Compare revised budget (" />{fmt(safe.Money)})</Btn>}
-      {a && <Btn kind={a.requires_reserve_acknowledgement ? 'coral' : 'primary'} className="w-full" disabled={busy || a.requires_reserve_acknowledgement && !acknowledged} onClick={() => void save()}><UI text={busy ? 'Saving…' : error ? 'Retry Save' : a.requires_reserve_acknowledgement ? 'Save plan anyway (override reserve)' : 'Save pending plan'} /></Btn>}
+      {a && <Btn kind={a.requires_reserve_acknowledgement ? 'coral' : 'primary'} className="w-full" disabled={busy || a.requires_reserve_acknowledgement && !acknowledged} onClick={() => void save()}><UI text={busy ? 'Saving…' : error ? 'Retry Save' : a.requires_reserve_acknowledgement ? 'Save with acknowledgement' : 'Save pending plan'} /></Btn>}
       <Btn kind="outline" className="w-full" disabled={busy} onClick={onClose}><UI text="Cancel plan" /></Btn>
     </div>
   </Modal>
@@ -96,7 +96,7 @@ export default function Compare() {
     finally { if (ticket === sequence.current) setBusy(false) }
   }
   const reduce = (minor: number) => { setSaving(null); setMode('budget'); setVal((minor / 100).toFixed(2)); void load(minor) }
-  return <div className="space-y-3 p-4">
+  return <div className="space-y-4 p-4">
     <h1 className="text-xl font-extrabold">{t('Find a better way to move money')}</h1>
     <Title><UI text="1 · What do you want to do?" /></Title>
     {OBJ.map(o => <button key={o.id} onClick={() => { clear(); setObj(o.id) }} className={`flex min-h-[44px] w-full items-center gap-3 rounded-2xl border bg-white p-3 text-left ${obj === o.id ? 'border-cobalt ring-1 ring-cobalt' : 'border-ink/10'}`}>
@@ -112,25 +112,25 @@ export default function Compare() {
       {obj === 'atm_withdrawal' && <label className="mt-3 block text-sm"><UI text="Card network" /><select value={network} onChange={e => { clear(); setNetwork(e.target.value) }} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3"><option value=""><UI text="Select network" /></option>{['Visa', 'Mastercard', 'UnionPay', 'Plus', 'Unknown'].map(n => <option key={n} value={n.toLowerCase()}>{n}</option>)}</select></label>}
       <Btn className="mt-3 w-full" disabled={busy} onClick={() => void load()}><UI text={busy ? 'Comparing…' : 'Compare options'} /></Btn>
     </Card>
-    <Title sub="Backend ranking · Simulated seeded pricing, not live market quotes"><UI text="3 · Ranked options" /></Title>
-    {obj === 'card' && <Warn><UI text="Card-purchase comparison and plans are unsupported by the integrated backend." /></Warn>}
-    {busy && <p role="status" className="text-sm text-ink/60"><UI text="Loading backend options…" /></p>}
+    <Title sub="Simulated prices · ranked for your request"><UI text="3 · Ranked options" /></Title>
+    {obj === 'card' && <Warn><UI text="Card purchases are not supported yet." /></Warn>}
+    {busy && <p role="status" className="text-sm text-ink/60"><UI text="Loading options…" /></p>}
     <Err e={error} />
     {Boolean(error) && <Btn kind="outline" disabled={busy} onClick={() => void load()}><UI text="Retry Compare" /></Btn>}
-    {!result && !busy && !error && <p className="text-sm text-ink/55"><UI text="Choose your inputs, then compare. No prices are calculated in this screen." /></p>}
+    {!result && !busy && !error && <p className="text-sm text-ink/55"><UI text="Choose your inputs, then compare." /></p>}
     {result && result.status !== 'ready' && <Card><p className="text-sm">{result.reason}</p><Btn kind="outline" className="mt-3" onClick={() => void load()}><UI text="Retry Compare" /></Btn></Card>}
     {result?.status === 'ready' && <>
-      <p className="text-xs text-ink/55">{result.ranking}</p>
+      <Details label="About these options"><UI text="Options are ranked by the comparison service. Prices are Simulated; check with the provider before use." /></Details>
       {!result.options.length && <Card><UI text="No options for these inputs. Change the amount or network and compare again." /></Card>}
       {result.options.map(o => <div key={o.snapshot_id} className="space-y-1">
         <ComparisonCard sel={o.selection} rank={o.rank} primary={mode === 'budget' ? 'net' : 'debit'} blocked={o.blocking_error ?? (!o.proposal_id ? 'Preview unavailable' : null)} onSave={() => setSaving(o)} />
         <p className="px-2 text-xs text-ink/55"><UI text="Principal: " />{fmt(o.selection.quote.principal)}<UI text={o.atm_info ? ` · ${o.atm_info.location_name}` : ''} /></p>
-        {o.compatibility && <p className="px-2 text-xs text-ink/60"><UI text={o.compatibility.status === 'unknown' ? `Compatibility unknown: ${o.compatibility.reason}` : `${o.compatibility.card_network}: ${o.compatibility.status} in seeded data only; verify with the provider. ${o.compatibility.evidence.source}`} /></p>}
+        {o.compatibility && <p className="px-1 text-xs text-ink/50"><UI text={o.compatibility.status === 'unknown' ? 'Compatibility unknown — check with your card provider.' : o.compatibility.status === 'compatible' ? 'Network supported in sample data only.' : 'Network not supported in sample data.'} /></p>}
       </div>)}
     </>}
     {toast && <div role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{toast}</div>}
     {saving && result?.status === 'ready' && api.compare && <PlanReview key={saving.proposal_id} api={api.compare} sessionId={result.session_id} option={saving} attempts={attempts} onRevise={reduce} onClose={() => setSaving(null)} onDone={() => {
-      setSaving(null); setToast('Saved to your pending plans. Balances are unchanged.'); bump()
+      setSaving(null); setToast('Plan saved. Your balances are unchanged.'); bump()
       void Promise.allSettled([api.home(), api.listPlans('pending')])
       window.setTimeout(() => go('home'), 900)
     }} />}

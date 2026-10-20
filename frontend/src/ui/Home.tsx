@@ -1,7 +1,7 @@
 import UI from './i18n-view'
 import { useEffect, useRef, useState } from 'react'
 import type { BalanceItem, HomeData, LedgerItem, Page, PendingRisk, PlanResponse, RiskPage } from '@/api/types'
-import { Amount, Badge, Btn, Card, Err, Title, Warn, fmt, stamp } from './kit'
+import { Amount, Badge, Btn, Card, Details, Err, Title, Warn, fmt, stamp } from './kit'
 import { useApp } from './ctx'
 import PlanCompletion from './PlanCompletion'
 
@@ -34,7 +34,7 @@ function usePage<T, R extends Page<T>>(read: ((cursor?: string) => Promise<R>) |
   return { ...result, more, moreBusy }
 }
 function ReadStatus({ loading, error, cached }: { loading: boolean; error: unknown; cached: boolean }) {
-  return <>{loading && <p role="status" className="text-xs text-ink/55"><UI text={cached ? 'Refreshing read — previous snapshot remains below.' : 'Loading authoritative records…'} /></p>}{Boolean(error) && <><Warn><UI text={cached ? 'Read unavailable. Showing the last successful snapshot. Refresh reads; do not repeat a successful financial confirmation.' : 'Read unavailable. Retry this read; no missing values are assumed to be zero.'} /></Warn><Err e={error} /></>}</>
+  return <>{loading && <p role="status" className="text-xs text-ink/55"><UI text={cached ? 'Updating…' : 'Loading…'} /></p>}{Boolean(error) && <><Warn><UI text={cached ? 'Could not refresh. Showing the last update; do not repeat a completed action.' : 'Could not load these details. Please refresh.'} /></Warn><Err e={error} /></>}</>
 }
 
 export default function Home() {
@@ -52,7 +52,7 @@ export default function Home() {
     if (!backend || cancellationRequests.current.has(plan.plan.plan_id)) return
     const id = plan.plan.plan_id
     cancellationRequests.current.add(id); setCancelling(old => new Set(old).add(id)); setActionError(null)
-    try { await backend.cancel(id); finish(id, 'Plan cancelled successfully. Only plan status changed; no financial posting occurred. Home refreshes separately.') }
+    try { await backend.cancel(id); finish(id, 'Plan cancelled. Your balances are unchanged.') }
     catch (e) { setActionError(e) }
     finally { cancellationRequests.current.delete(id); setCancelling(old => { const next = new Set(old); next.delete(id); return next }) }
   }
@@ -65,31 +65,29 @@ export default function Home() {
       <p className="text-xs font-semibold opacity-80"><UI text={h ? `Hi ${h.profile.display_name}` : 'Home'} /></p>
       <h1 className="text-2xl font-extrabold leading-tight"><UI text="Your money." /><br /><UI text="Across borders." /></h1>
     </div>
-    <div className="-mt-4 space-y-3 px-4">
-      {message && <div role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</div>}
-      <Card><ReadStatus loading={home.loading} error={home.error} cached={Boolean(h)} /><Btn kind="outline" onClick={() => setRetry(n => n + 1)}><UI text="Refresh Home reads" /></Btn></Card>
+    <div className="-mt-4 space-y-4 px-4">
+      {message && <div role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-800"><UI text={message} /></div>}
+      {(!h || Boolean(home.error)) && <Card><ReadStatus loading={home.loading} error={home.error} cached={Boolean(h)} /><Btn kind="outline" onClick={() => setRetry(n => n + 1)}><UI text="Refresh" /></Btn></Card>}
       {h && <>
         <div className={`rounded-2xl p-4 text-white ${h.budget.status === 'Below reserve' ? 'bg-red-600' : h.budget.status === 'At reserve' ? 'bg-amber-600' : 'bg-emerald-600'}`}>
-          <div className="text-xs font-semibold opacity-90"><UI text={home.loading || home.error ? 'Last successfully read MYR budget' : 'Current recorded MYR budget'} /></div>
+          <div className="flex items-center justify-between gap-3"><div className="text-xs font-semibold opacity-90"><UI text={home.loading || home.error ? 'Last updated MYR budget' : 'Current MYR budget'} /></div><button className="min-h-[44px] rounded-lg px-2 text-xs font-medium text-white/80 hover:text-white focus-visible:outline-white" onClick={() => setRetry(n => n + 1)}><UI text={home.loading ? 'Updating…' : 'Refresh'} /></button></div>
           <div className="text-2xl font-extrabold"><UI text={h.budget.status} /></div>
           <div className="mt-1 text-sm"><UI text="Available above reserve: " />{fmt(h.budget.available_above_reserve.Money)}</div>
           <div className="mt-2"><Badge b={h.budget.badge} /></div>
-          <p className="mt-2 text-xs"><UI text="MYR Funding only. KRW balances and pending-plan forecasts are separate; currencies are not converted or combined." /></p>
+          <div className="mt-3 rounded-xl bg-white/95 px-3 py-1"><Details label="About your reserves"><UI text="Reserves apply to your MYR Funding account. KRW balances stay separate." /></Details></div>
         </div>
         <BalanceCard label={t('MYR Funding Balance')} balance={h.balances.find(b => b.account_id === 'myr_funding')} />
         <div className="grid grid-cols-2 gap-3"><BalanceCard label={t('KRW Card Balance')} balance={h.balances.find(b => b.account_id === 'krw_card')} /><BalanceCard label={t('KRW Cash-on-Hand')} balance={h.balances.find(b => b.account_id === 'krw_cash')} /></div>
         <Card>
-          <Title sub="Your stated allocations — recorded values, not verified bank data"><UI text="Stated budget & reserves" /></Title>
-          <div aria-hidden="true" className="flex h-3 overflow-hidden rounded-full"><div className="flex-1 bg-emerald-500" /><div className="flex-1 bg-cobalt" /><div className="flex-1 bg-coral" /></div>
-          <p className="mt-1 text-[10px] text-ink/50"><UI text="Category colours only; not a calculated allocation chart." /></p>
-          <div className="mt-3 space-y-3 text-sm"><MoneyRow label="Available above reserve" value={h.budget.available_above_reserve} /><MoneyRow label="Stated fixed expenses reserve" value={h.profile.fixed_expense_reserve} /><MoneyRow label="Stated emergency reserve" value={h.profile.emergency_reserve} /><MoneyRow label="Total stated reserve" value={h.budget.total_reserve} /><MoneyRow label="Current reserve shortfall" value={h.budget.reserve_shortfall} /></div>
+          <Title><UI text="Stated budget & reserves" /></Title>
+          <div className="space-y-4 text-sm"><MoneyRow label="Available above reserve" value={h.budget.available_above_reserve} /><MoneyRow label="Stated fixed expenses reserve" value={h.profile.fixed_expense_reserve} /><MoneyRow label="Stated emergency reserve" value={h.profile.emergency_reserve} /><MoneyRow label="Total stated reserve" value={h.budget.total_reserve} /><MoneyRow label="Current reserve shortfall" value={h.budget.reserve_shortfall} /></div>
         </Card>
       </>}
-      <Title sub="A projection for each plan independently — not the actual current budget"><UI text="Pending-plan forecast" /></Title>
+      <Title sub="Possible impact of your pending plans"><UI text="Pending-plan forecast" /></Title>
       <ReadStatus loading={risks.loading} error={risks.error} cached={Boolean(risks.data)} />
-      {risks.data && <p className="text-xs text-ink/60">{risks.data.notice}</p>}
+      {risks.data && <Details><UI text="Each plan is checked separately against your current balance. Pending plans do not set money aside." /></Details>}
       {risks.data && risks.data.items.filter(r => !resolved.has(r.plan_id)).map(r => <Card key={r.plan_id} className="space-y-2 text-sm">
-        <div className="font-bold"><UI text={r.state} /></div><p>{r.reason.message}</p><p className="break-all text-[10px] text-ink/50"><UI text="Plan " />{r.plan_id} <UI text=" · assessed " />{stamp(r.assessed_at)}</p>
+        <div className="font-semibold"><UI text={r.state} /></div><Details label="About this forecast"><UI text="This is a forecast, not a change to your balance. Refresh to check your latest funds." />{r.state === 'Cannot assess' && <p>{r.reason.message}</p>}</Details>
         {r.quote && <Badge b={r.quote.badge} />}
         {r.preview?.projected_reserve_shortfall && <MoneyRow label="Forecast MYR reserve shortfall" value={r.preview.projected_reserve_shortfall} />}
         {r.preview?.other_account_reserve_check?.projected_reserve_shortfall && <MoneyRow label="Forecast separate-account MYR shortfall" value={r.preview.other_account_reserve_check.projected_reserve_shortfall} />}
@@ -97,7 +95,7 @@ export default function Home() {
       </Card>)}
       {risks.data && !risks.data.items.filter(r => !resolved.has(r.plan_id)).length && !risks.loading && !risks.error && <p className="text-xs text-ink/55"><UI text="No pending-plan assessments on this page." /></p>}
       {risks.data?.next_cursor && <Btn kind="outline" disabled={risks.moreBusy || risks.loading} onClick={() => void risks.more()}><UI text={risks.moreBusy ? 'Loading…' : 'Load more assessments'} /></Btn>}
-      <Title sub="Historical saved quotes; no funds are reserved until actual completion is recorded">{t('Pending / planned')}</Title>
+      <Title sub="Saved plans · no money deducted">{t('Pending / planned')}</Title>
       <ReadStatus loading={pending.loading} error={pending.error} cached={Boolean(pending.data)} />
       <Err e={actionError} />
       {pending.data && !plans.length && !pending.loading && !pending.error && <p className="rounded-xl border border-dashed border-ink/20 p-4 text-center text-xs text-ink/50"><UI text="No pending plans on this page. Pick an option in Compare." /></p>}
@@ -105,7 +103,7 @@ export default function Home() {
         const supported = ['exchange', 'atm_withdrawal'].includes(p.plan.quote.objective) && h?.balances.some(v => v.account_id === p.plan.quote.funding_source) && h.balances.some(v => v.account_id === p.context.destination_account)
         return <Card key={p.plan.plan_id}>
           <div className="flex justify-between"><div><div className="font-bold">{p.plan.quote.provider}</div><div className="text-xs text-ink/55">{p.plan.quote.objective === 'atm_withdrawal' ? 'ATM withdrawal' : p.plan.quote.objective}</div></div><div className="text-right text-sm"><b>{fmt(p.plan.quote.total_debit)}</b><div>→ {fmt(p.plan.quote.net_received)}</div></div></div>
-          <Badge b={p.plan.quote.badge} />{p.plan.reserve_breached && <p className="mt-1 text-xs text-amber-800"><UI text="Reserve warning acknowledged when saved (historical)." /></p>}
+          <div className="mt-2 flex items-center justify-between gap-2"><Badge b={p.plan.quote.badge} /><time className="text-[11px] text-ink/45" dateTime={p.created_at}>{stamp(p.created_at)}</time></div>{p.plan.reserve_breached && <p className="mt-2 text-xs text-amber-800"><UI text="Reserve warning acknowledged when saved." /></p>}
           {!supported && <p className="text-xs text-ink/55"><UI text="Completion unavailable for this objective or missing owned account. No substitute posting is supported." /></p>}
           <div className="mt-3 flex gap-2"><Btn className="flex-1" disabled={disabled || !supported} onClick={() => setConfirming(p)}><UI text="Confirm Completion" /></Btn><Btn kind="outline" disabled={disabled} onClick={() => void cancel(p)}><UI text={cancelling.has(p.plan.plan_id) ? 'Cancelling…' : 'Cancel Plan'} /></Btn></div>
         </Card>
@@ -114,7 +112,7 @@ export default function Home() {
       <Title><UI text="Confirmed ledger" /></Title>
       <ReadStatus loading={ledger.loading} error={ledger.error} cached={Boolean(ledger.data)} />
       {ledger.data && !ledger.data.items.length && !ledger.loading && !ledger.error && <p className="text-xs text-ink/55"><UI text="No confirmed ledger entries on this page." /></p>}
-      {Object.entries(groups).map(([id, items]) => <Card key={id} className="space-y-2">{items.map(item => <div key={item.entry.entry_id} className="border-b border-ink/5 pb-2 last:border-0 last:pb-0"><div className="text-sm font-bold">{LABEL[item.entry.type] ?? item.entry.type}<UI text={item.entry.type === 'fee' ? ' (separate debit)' : ''} /></div>{item.entry.lines.map((line, i) => <div key={i} className="flex justify-between text-sm"><span className="text-ink/60">{ACC[line.account] ?? line.account}</span><span>{fmt(line.Money, true)}</span></div>)}<Badge b={item.entry.badge} /></div>)}</Card>)}
+      {Object.entries(groups).map(([id, items]) => <Card key={id} className="space-y-4">{items.map(item => <div key={item.entry.entry_id} className="space-y-2 border-b border-ink/5 pb-4 last:border-0 last:pb-0"><div className="text-sm font-semibold"><UI text={LABEL[item.entry.type] ?? item.entry.type} /></div>{item.entry.lines.map((line, i) => <div key={i} className="flex justify-between gap-3 text-sm"><span className="text-ink/55">{ACC[line.account] ?? line.account}</span><span className="font-medium tabular-nums">{fmt(line.Money, true)}</span></div>)}<div className="flex items-center justify-between gap-2"><Badge b={item.entry.badge} /><time className="text-[11px] text-ink/45" dateTime={item.entry.badge.timestamp}>{stamp(item.entry.badge.timestamp)}</time></div></div>)}</Card>)}
       {ledger.data?.next_cursor && <Btn kind="outline" disabled={ledger.moreBusy || ledger.loading} onClick={() => void ledger.more()}><UI text={ledger.moreBusy ? 'Loading…' : 'Load more ledger entries'} /></Btn>}
     </div>
     {confirming && h && <PlanCompletion key={confirming.plan.plan_id} api={backend} plan={confirming} accounts={h.balances} onClose={() => { setConfirming(null); bump() }} onDone={notice => finish(confirming.plan.plan_id, notice)} />}

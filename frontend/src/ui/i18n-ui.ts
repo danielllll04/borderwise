@@ -1,5 +1,121 @@
 // UI copy only. Names, IDs, source provenance, user messages and API enums stay original.
 export const ZH_UI: Record<string, string> = Object.fromEntries(`
+Receipt ready for review.|收据已准备好，请审核。
+Choose your inputs, then compare.|请填写需求后比较方案。
+Loading options…|正在加载方案…
+About this value|关于此金额
+Sample data for demonstration, not a live quote or bank balance.|演示用示例数据，并非实时报价或银行余额。
+An estimate to review before confirming.|供确认前审核的参考估算。
+Based on details you entered.|根据您输入的信息记录。
+Based on activity you confirmed.|根据您确认的实际活动记录。
+Provided by a connected live source.|由已连接的实时来源提供。
+How this works|了解详情
+Error details|错误详情
+About your reserves|关于储备金
+Reserves apply to your MYR Funding account. KRW balances stay separate.|储备金适用于马币资金账户，韩元余额单独显示。
+Possible impact of your pending plans|待处理计划可能带来的影响
+Each plan is checked separately against your current balance. Pending plans do not set money aside.|每个计划均按当前余额单独评估，待处理计划不会冻结资金。
+About this forecast|关于此预测
+This is a forecast, not a change to your balance. Refresh to check your latest funds.|此处仅为预测，不会改变余额。刷新可查看最新资金情况。
+Saved plans · no money deducted|已保存的计划 · 尚未扣款
+Reserve warning acknowledged when saved.|保存时已确认储备金警告。
+Simulated conversation|模拟对话
+Please wait a moment before trying again.|请稍候再试。
+This request could not be completed. Please try again.|暂时无法完成此请求，请重试。
+Plan your money, compare options and review receipts.|规划资金、比较方案并审核收据。
+Conversation options|对话选项
+Chat previews only. Use Save or Confirm to record an action. Quotes remain Simulated.|聊天仅供预览。点击保存或确认才会记录操作，报价仍为模拟数据。
+Check your original Save before starting another.|请先检查上次保存的结果，再开始新的操作。
+Reviewing your selected receipt|正在审核所选收据
+Pending plan saved|已保存待处理计划
+This plan has been updated. See Home for its current status.|计划已更新，请到主页查看当前状态。
+About these options|关于这些方案
+Options are ranked by the comparison service. Prices are Simulated; check with the provider before use.|方案由比较服务排序。价格为模拟数据，使用前请向服务商确认。
+Compatibility unknown — check with your card provider.|兼容性未知，请向发卡机构确认。
+Network supported in sample data only.|仅示例数据支持此卡组织。
+Network not supported in sample data.|示例数据不支持此卡组织。
+Refresh this preview before saving.|请先刷新预览再保存。
+This option may use your reserves. Review the latest preview before saving.|此方案可能动用储备金，保存前请审核最新预览。
+Reserve impact|储备金影响
+Review and correct the receipt before sharing the bill.|分摊前请审核并更正收据。
+Financial preview|资金预览
+This is a preview. Saving a plan does not deduct money. Confirm actual completion separately.|此处仅为预览，保存计划不会扣款。实际完成后请另行确认。
+Showing the first page. Refresh for the latest assessments.|正在显示第一页，刷新可查看最新评估。
+Saved snapshot · refresh for current figures|历史快照 · 刷新查看当前金额
+About receipt scanning|关于收据扫描
+Receipt scanning currently returns a Simulated sample. Review every item before confirming. Repayments are recorded in the currencies you enter.|收据扫描目前返回模拟示例，确认前请逐项审核。还款按输入的币种记录。
+Bill recorded|已记录账单
+Simulated sample receipt. Review and correct every item before confirming.|模拟示例收据，确认前请审核并更正每一项。
+Original receipt|原始收据
+Original items|原始项目
+The original is kept when you make corrections.|更正时会保留原始收据。
+Review receipt|审核收据
+Select everyone who shared the bill, then assign each item.|选择所有参与者，再分配各项开销。
+Review shares|审核分摊
+Before you confirm|确认前请注意
+Check every share, the paying account and the payment date. Confirmation records the full bill once.|请检查分摊金额、付款账户和日期，确认后仅记录一次完整账单。
+Outstanding:|尚欠：
+Repayment saved. Refresh to see the latest balance; do not submit it again.|还款已保存，刷新可查看最新余额，请勿重复提交。
+Enter the debt being cleared and the money actually received, each in its own currency.|请分别按原币种填写偿还的债务和实际收到的金额。
+Repayment adds money to the selected account and reduces the debt. It is not income. Enter actual amounts; fees and estimated exchange rates are not included.|还款增加所选账户余额并减少债务，不属于收入。请填写实际金额，不包含手续费和估算汇率。
+Repayment history|还款记录
+Simulated locations and rates|模拟位置与汇率
+Locations, distances and prices are samples, not based on your location. Rate checks do not send notifications or make transactions.|位置、距离和价格均为示例，并非基于您的位置。汇率检查不会发送通知或执行交易。
+Compare options before choosing an ATM.|选择 ATM 前请比较方案。
+Rate check details|汇率检查详情
+Enter the amounts you actually paid and received. Review the prefilled quote before confirming.|请填写实际支付和收到的金额，确认前请审核预填报价。
+Confirmation updates your recorded balances and fees. It does not move real bank money.|确认会更新应用内记录的余额和费用，不会操作真实银行资金。
+Simulated prices · ranked for your request|模拟价格 · 按您的需求排序
+This balance already covers the requested amount.|此余额已足以满足所需金额。
+Refresh|刷新
+Current MYR budget|当前马币预算
+Last updated MYR budget|上次更新的马币预算
+Updating…|正在更新…
+Loading…|正在加载…
+Could not refresh. Showing the last update; do not repeat a completed action.|暂时无法刷新，正在显示上次更新。请勿重复已完成的操作。
+Could not load these details. Please refresh.|暂时无法加载详情，请刷新。
+Plan cancelled. Your balances are unchanged.|计划已取消，余额不变。
+Completion recorded. Your balances have been updated.|已记录完成情况，余额已更新。
+Plan saved. Your balances are unchanged.|计划已保存，余额不变。
+Bill recorded. Your balances have been updated.|账单已记录，余额已更新。
+Thinking…|正在思考…
+Recorded receipts|已记录的收据
+Retry your original message to check its result.|重试原消息以查看结果。
+Try again|重试
+Could not load recent messages. Refresh before starting another action.|暂时无法加载最近的消息，请刷新后再开始新的操作。
+I understand this reserve warning.|我已了解此储备金警告。
+This amount would leave less than your reserve target. Acknowledge the warning before saving; insufficient funds cannot be overridden.|此金额会令余额低于储备目标。保存前请确认警告，余额不足时无法继续。
+A Save was submitted. Retry the original Save to check its result.|已提交保存，请重试原保存操作以查看结果。
+Saving a plan does not deduct money.|保存计划不会扣款。
+Review plan|审核计划
+Maximum safe MYR debit|安全马币扣款上限
+Current MYR budget:|当前马币预算：
+KRW balances are shown separately.|韩元余额单独显示。
+Save with acknowledgement|确认警告并保存
+Saving a plan does not deduct or set aside money.|保存计划不会扣款或冻结资金。
+Card purchases are not supported yet.|暂不支持刷卡消费。
+Confirmation submitted. Check its status or retry the original request. Closing does not undo it.|已提交确认，请检查状态或重试原请求。关闭不会撤销记录。
+Reviewed completion preview|已审核的完成预览
+Completion preview|完成预览
+Changes from your saved quote|与已保存报价的差异
+These amounts would leave less than your MYR reserve target. Acknowledge before confirming; insufficient funds cannot be overridden.|这些金额会令余额低于马币储备目标。确认前请认可警告，余额不足时无法继续。
+MYR reserve impact|马币储备金影响
+Updating receipt…|正在更新收据…
+Sample receipt loaded. Review and correct every item.|已加载示例收据，请逐项审核并更正。
+Corrections saved. Review item assignments again before confirming.|更正已保存，确认前请重新审核分配。
+Shares are ready for review. Check them before confirming.|分摊已准备好，请审核后再确认。
+Assign every item before confirming the bill.|确认账单前请为每一项分配参与者。
+Review the receipt, assign items and confirm your bill.|审核收据、分配项目，再确认账单。
+Payment date and time|付款日期与时间
+Repayment date and time|还款日期与时间
+Completion date and time|完成日期与时间
+Use your own account in the bill’s currency and check the payment date.|请使用与账单同币种的本人账户，并检查付款日期。
+I reviewed the original receipt and corrections|我已审核原始收据及更正内容
+Confirming records the full bill payment and what others owe you. It does not make a bank payment.|确认会记录完整账单付款和他人欠款，不会执行银行付款。
+Repayment recorded. Your balance and outstanding debt are updated.|还款已记录，余额和未偿债务已更新。
+Loading balances owed…|正在加载欠款…
+Remaining debt:|剩余欠款：
+Could not load plan forecasts. Refresh them without repeating a completed action.|暂时无法加载计划预测，请刷新，勿重复已完成的操作。
 Enter a positive plain-decimal target rate.|请输入使用普通十进制数字的正目标汇率。
 ATM & Alerts requires the live Node backend. No frontend fixtures are used.|ATM 与提醒需要实际 Node 后端，不使用前端示例数据。
 Seeded ATM locations, distances and rates are Simulated, not live or based on your device location. Checks do not subscribe to notifications or execute transactions.|ATM 位置、距离与汇率均为预置模拟数据，非实时，也非基于设备位置。检查不会订阅通知或执行交易。
