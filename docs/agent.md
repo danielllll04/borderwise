@@ -1,5 +1,7 @@
 # Agent backend handoff (Priority 5)
 
+**Current risk-tool pagination:** [server-managed continuation contract and observed verification](agent-risk-pagination.md). `read_pending_plan_risks` takes optional `limit`/opaque `continuation`, defaults to page one and never accepts model-supplied database cursor IDs. Invalid/stale references restart with a real first-page result and recovery metadata. The Home assessment API and explicit frontend refresh remain unchanged.
+
 The Agent helps international students read owned balances, inspect limited history/plans, clarify decisions, retrieve supported comparisons and preview a pending-plan proposal. It executes no financial transactions. **Chat cannot save, confirm or cancel a plan, post a ledger entry, or change profiles/reserves.** A chat “yes” is never the frontend Save action.
 
 The later [confirmed Split handover](shared-expenses.md) adds an explicit confirmation endpoint and proposes the additive `shared_expense` ledger type. It is not registered as an Agent financial tool. [Current pending-plan assessments](pending-plan-risk.md) are available through Home and `read_pending_plan_risks`. [Receipt review adapters](receipt-review.md) now let the Agent prepare receipt/assignment metadata, with a separate explicit frontend confirmation. No tool posts financial records. See [limited real Groq observations](groq-verification.md), which distinguish real model tool selection from Simulated adapters.

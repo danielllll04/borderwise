@@ -7,6 +7,7 @@ export interface BorderWiseApi {
   mode: 'live' | 'mock'
   compare?: T.ManualCompareApi
   homeBackend?: T.HomeBackendApi
+  agentBackend?: T.AgentBackendApi
   home(): Promise<T.HomeData>
   ledger(limit?: number): Promise<{ items: T.LedgerItem[]; next_cursor: string | null }>
   listPlans(status?: string): Promise<{ items: T.PlanResponse[] }>
@@ -48,6 +49,15 @@ export function liveApi(base: string): BorderWiseApi {
   const a = (sid: string) => `/api/agent/sessions/${sid}`
   return {
     mode: 'live',
+    agentBackend: {
+      storageNamespace: `borderwise-agent:${base || 'same-origin'}:v1`,
+      create: () => req('POST', '/api/agent/sessions', {}),
+      session: id => req('GET', a(encodeURIComponent(id))),
+      history: (id, cursor) => req('GET', `${a(encodeURIComponent(id))}/history?limit=20${cursor ? `&cursor=${cursor}` : ''}`),
+      message: (id, input) => req('POST', `${a(encodeURIComponent(id))}/messages`, input),
+      preview: (id, proposal) => req('POST', `${a(encodeURIComponent(id))}/proposals/${encodeURIComponent(proposal)}/preview`, {}),
+      save: (id, proposal, input) => req('POST', `${a(encodeURIComponent(id))}/proposals/${encodeURIComponent(proposal)}/save`, input),
+    },
     homeBackend: {
       summary: () => req('GET', '/api/home'),
       ledger: cursor => req('GET', `/api/ledger?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),

@@ -136,3 +136,41 @@ export interface HomeBackendApi {
   confirm(id: string, input: {actual: ActualActivity; confirmed: true; idempotency_key: string; reserve_acknowledgement?: {acknowledged: true; check_token: string}}): Promise<unknown>
   cancel(id: string): Promise<PlanResponse>
 }
+
+// Existing Node Agent DTOs. Kept separate from the older scripted mock contract.
+export type AgentFinancialPreview = Omit<CompletionAssessment, 'differences'>
+export type AgentPlanRead = Pick<PlanResponse, 'plan' | 'created_at' | 'updated_at'>
+export type NodeAgentCard =
+  | {type: 'balance_summary'; data: HomeData}
+  | {type: 'quote_comparison'; source: string; ranking: string; options: Omit<CompareOption, 'proposal_id'>[]}
+  | {type: 'proposed_plan'; proposal_id: string; snapshot_id: string; quote_id: string; preview: AgentFinancialPreview; stale: boolean; next_action: string}
+  | {type: 'reserve_warning'; proposal_id: string; data: AgentFinancialPreview}
+  | {type: 'pending_plan_risk'; data: RiskPage | {status: 'unavailable'; reason: string; notice: string; assessed_at: string}; pagination?: {status: 'first_page' | 'continued' | 'restarted' | 'unavailable'; next_continuation: string | null; reason?: string}}
+  | {type: 'plan_list'; data: Page<AgentPlanRead>}
+  | {type: 'plan_detail'; data: AgentPlanRead}
+  | {type: 'ledger_history'; data: Page<LedgerItem>}
+  | {type: 'existing_balance_alternative'; account_id: string; balance: FV; reason: string}
+  | {type: 'comparison_unavailable'; status: string; reason: string}
+  | {type: 'receipt_review' | 'allocation_review' | 'receipt_workflow_unavailable' | 'shared_expense_recorded'}
+export interface NodeAgentResponse {
+  status: 'ok' | 'clarification_required' | 'unsupported' | 'unavailable' | 'provider_error'
+  explanation: string; provider: {name: 'groq' | 'demo'; simulated: boolean}
+  cards: NodeAgentCard[]; clarification: {field: string; question: string}[]
+  active_proposal_id: string | null; next_action: string; error_code?: string
+}
+export interface AgentAvailability {available: boolean; provider: 'groq' | 'demo'; simulated: boolean; authentication: string}
+export interface AgentSession {session_id: string; active_proposal_id?: string | null; agent: AgentAvailability}
+export interface AgentMessageInput {message: string; idempotency_key: string; snapshot_id?: string}
+export interface AgentMessageResult {turn_id: string; session_id: string; response: NodeAgentResponse}
+export interface AgentHistoryItem {message_id: number; role: 'user' | 'assistant'; content: string; response: NodeAgentResponse | null; created_at: string}
+export interface AgentHistory {items: AgentHistoryItem[]; next_cursor: number | null; receipt_events?: unknown[]; next_receipt_cursor?: string | null}
+export interface AgentProposalPreview {proposal_id: string; quote_id: string; selection: Selection; preview: AgentFinancialPreview}
+export interface AgentBackendApi {
+  storageNamespace: string
+  create(): Promise<AgentSession>
+  session(id: string): Promise<AgentSession>
+  history(id: string, cursor?: number): Promise<AgentHistory>
+  message(id: string, input: AgentMessageInput): Promise<AgentMessageResult>
+  preview(id: string, proposal: string): Promise<AgentProposalPreview>
+  save(id: string, proposal: string, input: {frontend_action: 'save_pending_plan'; idempotency_key: string; preview_token: string; reserve_acknowledgement?: {acknowledged: true; check_token: string}}): Promise<PlanResponse>
+}
