@@ -2,11 +2,15 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+import hashlib
 
 from schemas import (
     AllocateSplitRequest,
     AllocateSplitResponse,
+    AllocateSplitPreviewRequest,
+    AllocateSplitPreviewResponse,
+    ReceiptImageExtraction,
     CompareQuotesRequest,
     OCRReceipt,
     Quote,
@@ -22,6 +26,7 @@ from steve_calculator import (
 from steve_splitter import (
     MOCK_DANIEL_SETTLEMENT_LOGS,
     allocate_bill_split,
+    preview_bill_split,
     extract_receipt_ocr,
     list_receivables,
     settle_receivable,
@@ -69,17 +74,49 @@ def post_allocate_split(request: AllocateSplitRequest) -> AllocateSplitResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/split/receivables", response_model=List[Receivable])
+@router.post("/split/ocr/image", response_model=ReceiptImageExtraction)
+async def post_receipt_image(request: Request) -> ReceiptImageExtraction:
+    """Receive Node's private normalized PNG; current OCR remains a sample fallback."""
+
+    if request.headers.get("content-type", "").split(";")[0].strip() != "image/png":
+        raise HTTPException(status_code=415, detail="Send normalized image/png bytes")
+    image = bytearray()
+    async for chunk in request.stream():
+        if len(image) + len(chunk) > 4 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Receipt image exceeds 4 MiB")
+        image.extend(chunk)
+    if not image.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=400, detail="Expected a nonempty normalized PNG")
+    payload = bytes(image)
+    return ReceiptImageExtraction(
+        receipt=extract_receipt_ocr(image_bytes=payload, use_sample=False),
+        image_sha256=hashlib.sha256(payload).hexdigest(), bytes_received=len(payload),
+        fixture_notice="Steve received the uploaded PNG but returned its fixed Simulated sample receipt. Image content was not interpreted. Review and correct every field.",
+    )
+
+
+@router.post("/split/allocate/preview", response_model=AllocateSplitPreviewResponse)
+def post_split_preview(request: AllocateSplitPreviewRequest) -> AllocateSplitPreviewResponse:
+    try:
+        return preview_bill_split(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/split/receivables", response_model=List[Receivable], deprecated=True,
+            summary="Legacy standalone Python debt store; integrated views must read Node /api/receivables")
 def get_receivables(settled: Optional[bool] = Query(default=None)) -> List[Receivable]:
     return list_receivables(settled=settled)
 
 
 @router.post(
-    "/split/receivables/{receivable_id}/settle", response_model=Receivable
+    "/split/receivables/{receivable_id}/settle", response_model=Receivable, deprecated=True,
+    summary="Legacy standalone write; integrated frontend must confirm repayment with Node",
 )
 def post_settle_receivable(
     receivable_id: str, request: SettleReceivableRequest
 ) -> Receivable:
+    """Legacy Python-only mutation, never the integrated Node settlement workflow."""
     if request.receivable_id is not None and request.receivable_id != receivable_id:
         raise HTTPException(
             status_code=400,
@@ -93,6 +130,7 @@ def post_settle_receivable(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.get("/split/daniel-bridge-logs")
+@router.get("/split/daniel-bridge-logs", deprecated=True,
+            summary="Legacy diagnostic log; never poll/replay these events into Node financial writes")
 def get_daniel_bridge_logs() -> List[dict]:
     return MOCK_DANIEL_SETTLEMENT_LOGS

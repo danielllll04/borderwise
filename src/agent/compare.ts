@@ -10,13 +10,16 @@ export interface ComparisonOption {
   rank: number;
   funding_match?: 'requested' | 'alternative';
   atm_provider?: AtmProviderFixture;
+  /** Validated service metadata stays outside the agreed shared Quote. */
+  atm_info?: { bank_name: string; location_name: string; distance_meters: number; supported_networks: string[]; map_url: string; kakao_map_url?: string | null | undefined; withdrawal_guide: string };
+  integration?: { service: 'steve_compare'; request: Record<string, unknown>; upstream_quote: Record<string, unknown>; rate_direction: string; rate_representation: string; quote_storage: string; retrieved_at: string };
   /** Proposed internal adapter metadata; not part of the shared Quote model. */
   compatibility?: { status: 'unknown'; reason: string } | { status: 'compatible' | 'incompatible'; card_network: string; evidence: { source: string; timestamp: string } };
   assumptions: {
     confirmed: boolean;
     fee_debits: 'separate_account_debits';
     net_received: 'destination_credit_before_separate_account_fees';
-    fixed_fee_assertion: 'fixture_only' | 'compare_confirmed' | 'unresolved';
+    fixed_fee_assertion: 'fixture_only' | 'compare_confirmed' | 'not_asserted' | 'unresolved';
   };
 }
 export interface AtmProviderFixture {
@@ -96,11 +99,12 @@ const FIXTURES: Fixture[] = [
   { decision: fixtureDecision(30000, 'principal'), options: [fixtureOption('agent-exchange-myr300-a-v1', 30000, 300, 89400, 30300, 1), fixtureOption('agent-exchange-myr300-b-v1', 30000, 150, 88800, 30150, 2, 'fixed', false, 'myr_funding', '296')] },
   { decision: fixtureDecision(30000, 'total_debit_budget'), options: [fixtureOption('agent-budget-myr300-a-v1', 29700, 300, 88506, 30000, 1)] },
   { decision: fixtureDecision(250000, 'principal'), options: [fixtureOption('agent-exchange-myr2500-a-v1', 250000, 300, 745000, 250300, 1), fixtureOption('agent-exchange-myr2500-variable-v1', 250000, 500, 745000, 250500, 2, 'percentage')] },
-  { decision: fixtureDecision(90000, 'destination_target', true, 'myr_funding', 'KRW'), options: ATM_PROVIDER_FIXTURES.map((provider, index) => fixtureOption(
+  { decision: fixtureDecision(90000, 'destination_target', true, 'myr_funding', 'KRW'), options: [fixtureOption('agent-cash-krw90000-from-myr-v1', 30000, 500, 90000, 30500, 1, 'fixed', true, 'myr_funding', '300')] },
+  { decision: fixtureDecision(100000, 'destination_target', true, 'myr_funding', 'KRW'), options: ATM_PROVIDER_FIXTURES.map((provider, index) => fixtureOption(
     `agent-atm-${provider.provider.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}-v1`,
     [32052, 32103, 32072, 32363][index]!,
     0,
-    90000,
+    100000,
     [34374, 34427, 34427, 35157][index]!,
     index + 1,
     'fixed',
@@ -130,7 +134,7 @@ export class FixtureCompareAdapter implements CompareAdapter {
     const fixture = FIXTURES.find(item => payloadHash(item.decision) === payloadHash(priceDecision));
     if (!fixture) return { status: 'requote_required', reason: 'No complete simulated quote exists for this exact request. Ask Compare for a revised quote; the Agent cannot generate or scale one.', options: [] };
     const compatibleOptions = decision.objective === 'atm_withdrawal' && decision.card_network && decision.card_network !== 'unknown'
-      ? fixture.options.filter(option => option.atm_provider?.supported_networks.some(network => network.toLowerCase() === decision.card_network!.toLowerCase()))
+      ? fixture.options.filter(option => !option.atm_provider || option.atm_provider.supported_networks.some(network => network.toLowerCase() === decision.card_network!.toLowerCase()))
       : fixture.options;
     const options = structuredClone(compatibleOptions).map(option => decision.objective === 'atm_withdrawal'
       ? { ...option, compatibility: { status: 'unknown' as const, reason: 'Simulated price fixture has no ATM/network compatibility evidence. Verify with the ATM/card provider.' } } : option);
@@ -159,8 +163,9 @@ export function validateComparison(result: Comparison, decision: Decision): Comp
       || (quote.funding_source !== decision.funding_account && option.funding_match !== 'alternative')
       || !decision.amount || value.currency !== decision.amount.currency || value.amount_minor !== decision.amount.amount_minor;
   })) return { status: 'unsupported', reason: 'Compare must return complete quotes matching the requested objective, amount basis, currency and routing; alternative funding must be explicit.', options: [] };
-  if (options.some(option => option.assumptions.confirmed !== true || !['fixture_only', 'compare_confirmed'].includes(option.assumptions.fixed_fee_assertion)
-    || result.source === 'compare' && option.assumptions.fixed_fee_assertion !== 'compare_confirmed'
+  if (options.some(option => option.assumptions.confirmed !== true || !['fixture_only', 'compare_confirmed', 'not_asserted'].includes(option.assumptions.fixed_fee_assertion)
+    || option.assumptions.fixed_fee_assertion === 'not_asserted' && option.selection.context.fee_behavior !== 'unspecified'
+    || result.source === 'compare' && !['compare_confirmed', 'not_asserted'].includes(option.assumptions.fixed_fee_assertion)
     || option.assumptions.fee_debits !== 'separate_account_debits' || option.assumptions.net_received !== 'destination_credit_before_separate_account_fees'
     || !Number.isSafeInteger(option.rank) || option.rank < 1
     || (result.source === 'simulated_fixture' && option.selection.quote.badge.status !== 'Simulated'))) {

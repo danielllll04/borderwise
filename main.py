@@ -17,12 +17,10 @@ app.add_middleware(
 app.include_router(steve_router)
 
 
-# Daniel integration example:
-# from daniel_router import router as daniel_router
-# from daniel_ledger import post_shared_expense_or_settlement
-# from steve_splitter import register_daniel_settlement_hook
-# app.include_router(daniel_router)
-# register_daniel_settlement_hook(post_shared_expense_or_settlement)
+# Integrated Split reads Node GET /api/receivables and its settlement history.
+# Explicit repayment confirmation goes directly to Node's narrow confirmation route.
+# Do not register the legacy settlement hook or replay Python bridge logs into Node:
+# Node is the sole financial writer and outstanding-debt authority.
 
 
 @app.get("/api/health")

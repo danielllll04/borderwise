@@ -157,6 +157,69 @@ class AllocateSplitResponse(SchemaModel):
     badge: Badge
 
 
+class ReviewedSplitItem(SchemaModel):
+    """Line-total review data; no unit price is invented from a rounded line total."""
+
+    item_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    quantity: str = Field(pattern=r"^(?:0|[1-9]\d{0,5})(?:\.\d{1,3})?$")
+    total_price_krw: StrictInt = Field(ge=1, le=9007199254740991)
+
+
+class ReviewedSplitReceipt(SchemaModel):
+    receipt_id: str = Field(min_length=1, max_length=100)
+    merchant: Optional[str] = Field(default=None, max_length=200)
+    date: Optional[str] = None
+    items: List[ReviewedSplitItem] = Field(min_length=1, max_length=20)
+    tax_krw: StrictInt = Field(ge=0, le=9007199254740991)
+    discount_krw: StrictInt = Field(ge=0, le=9007199254740991)
+    total_krw: StrictInt = Field(ge=1, le=9007199254740991)
+
+
+class AllocateSplitPreviewRequest(SchemaModel):
+    """Stable IDs only. This route never creates receivables or emits bridge events."""
+
+    receipt: ReviewedSplitReceipt
+    receipt_version: StrictInt = Field(ge=1, le=2147483647)
+    payer_id: str = Field(min_length=1, max_length=100)
+    participant_ids: List[str] = Field(min_length=1, max_length=20)
+    item_assignments: Dict[str, List[str]]
+
+
+class PreviewShare(SchemaModel):
+    participant_id: str
+    amount_minor: StrictInt
+
+
+class PreviewItemShares(SchemaModel):
+    item_id: str
+    shares: List[PreviewShare]
+
+
+class AllocateSplitPreviewResponse(SchemaModel):
+    preview_only: Literal[True] = True
+    financial_mutation: Literal[False] = False
+    preview_id: str
+    receipt_id: str
+    receipt_version: StrictInt
+    payer_id: str
+    item_assignments: Dict[str, List[str]]
+    total_bill: Money
+    participant_shares: List[PreviewShare]
+    item_shares: List[PreviewItemShares]
+    adjustments: List[PreviewShare]
+    badge: Badge
+
+
+class ReceiptImageExtraction(SchemaModel):
+    receipt: OCRReceipt
+    image_sha256: str
+    bytes_received: StrictInt
+    reads_image_content: Literal[False] = False
+    mode: Literal["sample"] = "sample"
+    fixture_notice: str
+
+
 class SettleReceivableRequest(SchemaModel):
     """Record an actual repayment and tell Daniel's ledger which wallet to credit."""
 

@@ -2,6 +2,7 @@ import { AppError } from '../domain/errors.js';
 import { DEMO_PROFILE_ID } from '../domain/accounts.js';
 import { payloadHash } from '../domain/idempotency.js';
 import type { ReceiptAdapters, ReceiptData, ReceiptExtraction, AllocationResult } from './contracts.js';
+import { steveReceiptAdapters } from './steve-adapter.js';
 
 export const DEMO_PARTICIPANTS = [
   { participant_id: DEMO_PROFILE_ID, display_name: 'Payer (current demo user)' },
@@ -53,7 +54,8 @@ export function fixtureReceiptAdapters(): ReceiptAdapters {
 }
 
 export function configuredReceiptAdapters(): ReceiptAdapters {
+  if (process.env.RECEIPT_PROVIDER === 'steve') return steveReceiptAdapters();
   if (process.env.RECEIPT_PROVIDER === 'demo') return fixtureReceiptAdapters();
-  const unavailable = () => { throw new AppError(503, 'RECEIPT_INTEGRATION_UNAVAILABLE', 'Steve OCR/allocation/directory contracts are not connected. Set RECEIPT_PROVIDER=demo explicitly for labelled local fixtures. Live integration is unverified.'); };
+  const unavailable = () => { throw new AppError(503, 'RECEIPT_INTEGRATION_UNAVAILABLE', 'Receipt integration is disabled. Configure RECEIPT_PROVIDER=steve and its trusted server/participant settings, or demo explicitly for labelled fixtures. No fallback is used.'); };
   return { ocr: { async extract() { return unavailable(); } }, allocation: { async allocate() { return unavailable(); } }, directory: { async list() { return unavailable(); } } };
 }

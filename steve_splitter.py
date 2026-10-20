@@ -1,11 +1,16 @@
 """Deterministic receipt splitting and receivable tracking for BorderWise."""
 
 from typing import Callable, Dict, List, Optional
+import hashlib
+import json
+from decimal import Decimal
 from uuid import uuid4
 
 from schemas import (
     AllocateSplitRequest,
     AllocateSplitResponse,
+    AllocateSplitPreviewRequest,
+    AllocateSplitPreviewResponse,
     Badge,
     Money,
     OCRReceipt,
@@ -114,33 +119,81 @@ def _reference_home_amount(krw_share: int, home_currency: str, snapshot: RateSna
     return Money(amount_minor=int(amount_minor), currency=home_currency)
 
 
-def allocate_bill_split(request: AllocateSplitRequest) -> AllocateSplitResponse:
-    """Allocate a confirmed receipt and lock friends' receivables in KRW."""
+def _calculate_shares(items, people, payer, assignments, tax_krw, discount_krw):
+    """Pure common arithmetic for the legacy write flow and review-only preview."""
 
-    snapshot = request.snapshot or _new_snapshot()
-    people = _unique_people([request.payer] + [friend.name for friend in request.friends])
+    people = list(people)
     krw_owed_by_person: Dict[str, int] = {person: 0 for person in people}
-
-    for item in request.confirmed_receipt.items:
-        if request.item_assignments is not None:
-            assigned_people = request.item_assignments.get(item.item_id)
+    item_shares = []
+    for item_id, amount, defaults in items:
+        if assignments is not None:
+            assigned_people = assignments.get(item_id)
         else:
-            assigned_people = item.assigned_to
-        assigned_people = _unique_people(list(assigned_people or [request.payer]))
-
+            assigned_people = defaults
+        assigned_people = _unique_people(list(assigned_people or [payer]))
         for person in assigned_people:
             krw_owed_by_person.setdefault(person, 0)
             if person not in people:
                 people.append(person)
-
-        base_share, remainder = divmod(item.total_price_krw, len(assigned_people))
+        shares = []
+        base_share, remainder = divmod(amount, len(assigned_people))
         for index, person in enumerate(assigned_people):
-            krw_owed_by_person[person] += base_share + (1 if index < remainder else 0)
-
+            share = base_share + (1 if index < remainder else 0)
+            krw_owed_by_person[person] += share
+            shares.append({"participant_id": person, "amount_minor": share})
+        item_shares.append({"item_id": item_id, "shares": shares})
+    before_adjustment = dict(krw_owed_by_person)
     _distribute_adjustment(
-        krw_owed_by_person,
-        people,
-        int(request.confirmed_receipt.tax_krw) - int(request.confirmed_receipt.discount_krw),
+        krw_owed_by_person, people, int(tax_krw) - int(discount_krw),
+    )
+    adjustments = [{"participant_id": p, "amount_minor": krw_owed_by_person[p] - before_adjustment[p]} for p in people]
+    return krw_owed_by_person, item_shares, adjustments
+
+
+def preview_bill_split(request: AllocateSplitPreviewRequest) -> AllocateSplitPreviewResponse:
+    """No stores, receivable IDs, FX references, callback or posting event here."""
+
+    people = request.participant_ids
+    receipt = request.receipt
+    item_ids = [item.item_id for item in receipt.items]
+    if len(set(people)) != len(people) or request.payer_id not in people or any(not p.strip() or len(p) > 100 for p in people):
+        raise ValueError("Choose unique stable participant IDs including the payer")
+    if len(set(item_ids)) != len(item_ids) or set(item_ids) != set(request.item_assignments):
+        raise ValueError("Every reviewed item requires exactly one explicit assignment")
+    for assigned in request.item_assignments.values():
+        if not assigned or len(assigned) != len(set(assigned)) or any(p not in people for p in assigned):
+            raise ValueError("Assignments require unique selected participant IDs; no payer default is allowed")
+    if any(Decimal(item.quantity) <= 0 for item in receipt.items):
+        raise ValueError("Reviewed quantities must be positive")
+    if sum(item.total_price_krw for item in receipt.items) + receipt.tax_krw - receipt.discount_krw != receipt.total_krw:
+        raise ValueError("Reviewed line totals, tax and discount must reconcile")
+    owed, item_shares, adjustments = _calculate_shares(
+        [(item.item_id, item.total_price_krw, []) for item in receipt.items], people,
+        request.payer_id, request.item_assignments, receipt.tax_krw, receipt.discount_krw,
+    )
+    if any(value < 0 or value > 9007199254740991 for value in owed.values()) or sum(owed.values()) != receipt.total_krw:
+        raise ValueError("Allocation rule produced unsupported negative or inconsistent shares")
+    binding = hashlib.sha256(json.dumps(request.model_dump(), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    return AllocateSplitPreviewResponse(
+        preview_id=f"split_preview_{binding}", receipt_id=receipt.receipt_id,
+        receipt_version=request.receipt_version, payer_id=request.payer_id,
+        item_assignments=request.item_assignments,
+        total_bill=Money(amount_minor=receipt.total_krw, currency="KRW"),
+        participant_shares=[{"participant_id": p, "amount_minor": owed[p]} for p in people],
+        item_shares=item_shares, adjustments=adjustments,
+        badge=Badge(status="Indicative", source="Steve deterministic reviewed allocation preview; not confirmed or posted", timestamp=now_iso()),
+    )
+
+
+def allocate_bill_split(request: AllocateSplitRequest) -> AllocateSplitResponse:
+    """Legacy allocation/write flow retained for existing callers; Node does not call it."""
+
+    snapshot = request.snapshot or _new_snapshot()
+    people = _unique_people([request.payer] + [friend.name for friend in request.friends])
+    krw_owed_by_person, _, _ = _calculate_shares(
+        [(item.item_id, item.total_price_krw, item.assigned_to) for item in request.confirmed_receipt.items],
+        people, request.payer, request.item_assignments,
+        request.confirmed_receipt.tax_krw, request.confirmed_receipt.discount_krw,
     )
 
     receivables: List[Receivable] = []

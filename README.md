@@ -1,12 +1,12 @@
 # BorderWise — Home, plans and Agent backend
 
-**Status:** P1 (Home/Money & Ledger), P3 (plans/reserve warnings/completion), and P5 (Agent backend) are implemented. Limited **real Groq smoke checks** have run against isolated seeded data; see [observed results and limitations](docs/groq-verification.md). Compare uses **simulated fixtures**. Authentication and card purchases remain **unsupported**.
+**Status:** P1 (Home/Money & Ledger), P3 (plans/reserve warnings/completion), and P5 (Agent backend) are implemented. Limited **real Groq smoke checks** have run against isolated seeded data; see [observed results and limitations](docs/groq-verification.md). Compare can use **Steve's HTTP service with Simulated seed data**, or explicitly configured static fixtures. Authentication and card purchases remain **unsupported**.
 
 Home (Priority 1), pending plans/reserve warnings/completion (Priority 3), and a read/preview Agent (Priority 5) for international students. The current demo implements MYR/KRW and three owned accounts. Built with TypeScript, Fastify 5 and Prisma 6, with SQLite locally or explicitly configured Supabase PostgreSQL. **Authentication is not implemented.** All APIs use the single seeded `demo-profile`; keep the default loopback host. Session/profile ownership checks are local demo boundaries, not production user isolation.
 
 BorderWise records user-reported activity completed elsewhere. It never executes transfers, exchanges, card payments or ATM withdrawals. Seed data and quote fixtures are **Simulated**; completion amounts supplied through the plan API are labelled **User-Confirmed**. The Agent uses an optional Groq tool-calling adapter and cannot save/confirm/cancel plans, post a ledger entry or change a profile/reserve through chat. This branch has no connected frontend, Split UI, live OCR, bank connections or live market integrations. Card purchase plans remain unsupported until a purchase ledger type is agreed.
 
-Remote team work is preserved: Steve's Python schemas/calculator and the `main.py`, `steve_router.py` and `steve_splitter.py` entrypoint/router/split modules remain intact, while `feature/borderwise-frontend` contains separate frontend work. These are not connected to the TypeScript Agent adapters. The Agent still uses its explicitly Simulated fixtures; Python and TypeScript contract alignment remains integration work, not an implemented engine replacement.
+Remote team work is preserved, including Steve's Python modules and the merged frontend package. The Node Agent connects to Steve's deterministic Compare routes and receipt allocation preview through validated server-side HTTP adapters. Steve supplies calculations; **Node is the sole financial writer** and owns financial previews, immutable proposals, plans, explicit confirmation, balances, ledger and authoritative receivables/settlement. Steve's legacy Split/settlement writes remain disconnected. Frontend adoption of these adapters, receipt review and repayment confirmation remains pending; the manual frontend Compare screen still uses its existing local fixtures. See [Compare mappings, verification and frontend work](docs/compare-integration.md).
 
 **Priority 3 handoff:** [plan API guide and examples](docs/priority-3.md). It covers preview → acknowledge → save, revised quotes, actual completion, cancellation, stale checks and idempotency.
 
@@ -16,13 +16,55 @@ Remote team work is preserved: Steve's Python schemas/calculator and the `main.p
 
 **Current pending-plan risk:** [assessment API, Home/Agent cards and frontend refresh](docs/pending-plan-risk.md). `GET /api/plans/assessments` projects each pending plan independently against one current recorded balance/reserve snapshot, with distinct deficits and reserve shortfalls. Home adds risk counts and up to three relevant cards. The Agent gains one read-only `read_pending_plan_risks` tool. Financial actions return a separate refresh-read instruction; assessment failures do not turn committed payments into failures. Saved quotes, flags and acknowledgements remain historical records.
 
-**Receipt review:** [adapter contracts, upload/review APIs and frontend confirmation](docs/receipt-review.md). The Agent can prepare versioned receipt/assignment proposals through proposed Steve adapter ports. Explicit `RECEIPT_PROVIDER=demo` returns a labelled OCR/allocation fixture; no live Steve integration or image interpretation is claimed. A separate frontend confirmation route resolves the trusted current proposal and reuses shared-expense accounting. Chat cannot post money. JPEG/PNG images are validated and stored privately; review metadata and committed results survive image cleanup.
+**Receipt review:** [HTTP mapping, verification, upload/review APIs and settlement handover](docs/receipt-review.md#steve-http-integration-2026-10-20). `RECEIPT_PROVIDER=steve` sends private normalized image bytes to Python (currently **sample OCR only**) and reviewed stable-ID assignments to its pure allocation preview. That preview creates no Python receivables or bridge event. `RECEIPT_PROVIDER=demo` remains an explicit fixed fixture. Only the existing frontend confirmation boundary posts the full bill once in Node and creates linked authoritative receivables. Chat cannot post money. Private uploads, original provenance, corrections, stale versions and replay protections remain intact.
 
-**Steve/frontend integration handover:** start with [shared-expense confirmation](docs/shared-expenses.md), [pending-plan risk](docs/pending-plan-risk.md), [receipt review](docs/receipt-review.md) and the [proposed card-network/Compare addition](docs/agent.md#proposed-internal-compare-addition-for-steve-card-network). [Real Groq observations](docs/groq-verification.md) distinguish actual model tool selection from Simulated adapters and record remaining blockers. These proposals still require alignment with the remote Python models; they do not silently replace agreed shared models.
+**Split repayment:** [authoritative reads, explicit confirmation, identity mapping and frontend examples](docs/settlements.md). `GET /api/receivables` and per-debt history expose Node outstanding debt; `POST /api/receivables/:receivableId/settlements/confirm` accepts explicitly confirmed original-currency clearance and independently entered actual money received. Partial repayments, durable replay and over-settlement guards reuse the ledger transaction. Python legacy settlement writes/events remain disconnected; no LLM settlement write tool exists.
+
+Settlement confirmation currently **excludes fees and FX snapshots**; those fields are rejected. Cross-currency repayment requires independently entered actual received and original-currency cleared amounts. An indicative rate must never manufacture actual repayment.
+
+The integrated frontend must not use these legacy Python paths or replay their events:
+
+| Python path | Required integrated flow |
+| --- | --- |
+| `POST /api/split/allocate` | Use pure `POST /api/split/allocate/preview` for review, then explicit Node bill confirmation; legacy allocation creates Python debt/events. |
+| `POST /api/split/receivables/{id}/settle` | Confirm repayment directly with Node; never mark Python settled first or mirror it afterward. |
+| `GET /api/split/receivables` | Read Node `/api/receivables` and its history for authoritative outstanding debt. |
+| `GET /api/split/daniel-bridge-logs` | Diagnostics only; never replay bridge events or install a financial writer callback. |
+
+**Steve/frontend integration handover:** start with [shared-expense confirmation](docs/shared-expenses.md), [settlements](docs/settlements.md), [pending-plan risk](docs/pending-plan-risk.md), [receipt review](docs/receipt-review.md) and the [proposed card-network/Compare addition](docs/agent.md#proposed-internal-compare-addition-for-steve-card-network). [Real Groq observations](docs/groq-verification.md) distinguish actual model tool selection from Simulated adapters and record remaining blockers. These proposals still require alignment with the remote Python models; they do not silently replace agreed shared models.
 
 **Dependency audit:** [per-package findings, compatible fixes and remaining exposure](docs/dependency-audit.md). Matched Prisma/client 6.19.3 and TypeScript ESLint 8.71.2 reduce the full audit from 13 to 3 high package findings. The remaining entries share the deepmerge-ts advisory through Prisma's config loader; audit still fails and a reviewed Prisma major migration remains recommended.
 
 **Online database:** [Supabase setup, private-schema migration, exact SQLite copy and rollback](docs/supabase.md). The configured local installation now uses a verified Supabase copy (34 records across 23 model tables); its original SQLite file is preserved. Fresh checkouts default to SQLite until explicitly configured. Credentials/provider selection are private local configuration. The guide records online verification, storage boundaries and rollback limits.
+
+**Compare integration:** [contract mapping, limitations, observed verification and Split ownership notes](docs/compare-integration.md). `COMPARE_PROVIDER=steve` selects HTTP (the default); `COMPARE_PROVIDER=fixture` explicitly selects static examples. There is no fixture fallback on failure. Steve's current data remains Simulated, including seeded compatibility evidence. Principal-only requests and KRW-funded pricing are rejected rather than guessed.
+
+Run the two backends in separate PowerShell terminals after Node setup below. Keep both bound to loopback; no authentication is added. Use an installed Python 3.11+ to create this separate environment once (the tracked Linux `.venv` is not a Windows runtime):
+
+```powershell
+python -m venv .local/compare-python
+.\.local\compare-python\Scripts\python.exe -m pip install -r requirements-compare.txt
+```
+
+Terminal 1, Steve's service:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONPYCACHEPREFIX = Join-Path (Get-Location) ".local/python-cache"
+.\.local\compare-python\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --no-access-log
+```
+
+Terminal 2, Node (these explicit values replace stale session overrides; model selection remains independent):
+
+```powershell
+$env:COMPARE_PROVIDER = "steve"
+$env:STEVE_COMPARE_BASE_URL = "http://127.0.0.1:8000"
+npm run dev
+```
+
+For receipt HTTP in that same Node terminal, also set `RECEIPT_PROVIDER=steve` and server-only `RECEIPT_PARTICIPANTS_JSON` before starting Node. The receipt adapter reuses the Compare service URL unless overridden; see the [exact setup and identity example](docs/receipt-review.md#steve-http-integration-2026-10-20). The local `.env` is preserved; selecting Steve requires these explicit local settings. Node repayment APIs need no additional provider configuration; integrated Split views must use Node reads/confirmation rather than Python legacy writes.
+
+For a persistent local setup enter the same settings in ignored `.env` and clear stale session overrides. Never put the Supabase database URL or Groq key into frontend configuration. The existing database must not be reset, reseeded or recopied to try Compare. Root build/type-check apply to the Node backend. Root `npm run lint` also traverses the newly merged frontend and currently reports pre-existing frontend errors; backend-source lint passes. See the [verification record](docs/compare-integration.md#verification-record). No frontend files or lint rules were changed to hide those findings.
 
 ## Setup (PowerShell)
 
@@ -40,7 +82,7 @@ npm run dev
 
 Open `http://127.0.0.1:3000/api/home`. `.env.example` contains no secrets. `DATABASE_URL="file:./dev.db"` resolves relative to `prisma/schema.prisma`, so data lives at `prisma/dev.db` and survives server restarts. The migration commands first create the SQLite file if absent, without truncating existing data, to avoid a Prisma 6 Windows initialization error. The database and `.env` are ignored by Git. Restarting or seeding does not reset the database. Profile edits survive seed reruns.
 
-For real Groq, enter the key only in ignored `.env`, set `AGENT_PROVIDER="groq"` and select an available tool-calling `GROQ_MODEL`. The isolated smoke check successfully used `openai/gpt-oss-120b`; the earlier `llama-3.3-70b-versatile` returned `model_not_found`. Inherited PowerShell variables override `.env`: clear `Env:AGENT_PROVIDER`, `Env:GROQ_MODEL` and `Env:AGENT_DEMO_FAILURE` with `Remove-Item ... -ErrorAction SilentlyContinue`, or explicitly set the provider/model in the launching session. Keep `RECEIPT_PROVIDER="unavailable"` until connected; setting it to `demo` explicitly enables Simulated OCR/directory/allocation. Compare fixtures remain Simulated even with real Groq; ATM compatibility stays unknown without supporting data. See [configuration and actual results](docs/groq-verification.md).
+For real Groq, enter the key only in ignored `.env`, set `AGENT_PROVIDER="groq"` and select an available tool-calling `GROQ_MODEL`. The isolated smoke check successfully used `openai/gpt-oss-120b`; the earlier `llama-3.3-70b-versatile` returned `model_not_found`. Inherited PowerShell variables override `.env`: clear `Env:AGENT_PROVIDER`, `Env:GROQ_MODEL` and `Env:AGENT_DEMO_FAILURE` with `Remove-Item ... -ErrorAction SilentlyContinue`, or explicitly set the provider/model in the launching session. `.env.example` selects Steve receipt HTTP, which also needs the stable-ID participant directory; without a provider setting, receipts are unavailable. Select `RECEIPT_PROVIDER="unavailable"` to disable receipts or `demo` explicitly for fixed OCR/directory/allocation fixtures. Steve HTTP OCR also remains Simulated sample output. Compare data remains Simulated even with real Groq; ATM compatibility stays unknown without supporting data. See [configuration and actual results](docs/groq-verification.md).
 
 | Command | Purpose |
 | --- | --- |
@@ -285,9 +327,9 @@ For settlement, use `kind: 'settlement'`, `receivable_id`, `receiving_account`, 
 - Preview a selected shared Quote with separate routing and fee-behavior context.
 - Save a pending shared Plan as metadata only, without posting or reserving funds.
 - Confirm a pending plan using actual exchange/ATM inputs, with transaction-bound ledger posting.
-- Receive a Split settlement using original-currency clearing and actual repayment values through the existing internal service. A proposed explicit-confirmation HTTP handover now creates shared-expense receivables; no live Steve integration or settlement HTTP workflow is implemented.
+- Receive a Split settlement using original-currency clearance and actual repayment values through the existing internal service and narrow [explicit-confirmation endpoint](docs/settlements.md). Shared-expense/receipt confirmation creates linked Node receivables; integrated Split views read Node outstanding debt and history. Python settlement callbacks remain disconnected.
 
-`LedgerService.prepareInTransaction` validates/projects without writes; `postInTransaction` lets the plan service commit actual ledger activity, completion metadata and workflow replay together. Direct `LedgerService.post` still serves the existing seed/demo and future Split adapter. Compare and Split must not write the ledger or balances directly. Saving a quote or plan never posts financial activity. The Agent reuses Home/plan services without a separate accounting implementation.
+`LedgerService.prepareInTransaction` validates/projects without writes; `postInTransaction` lets the plan service commit actual ledger activity, completion metadata and workflow replay together. Direct `LedgerService.post` serves the existing seed/demo and explicit Split repayment adapter. Compare and Split must not write the ledger or balances directly. Saving a quote or plan never posts financial activity. The Agent reuses Home/plan services without a separate accounting implementation.
 
 ## Provisional contract questions for Steve
 
