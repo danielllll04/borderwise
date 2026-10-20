@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-BorderWise is a local hackathon prototype for planning, reviewing, and recording user-reported travel-money activity. It does not execute bank transfers, card payments, exchanges, or ATM withdrawals. The system uses intentionally simulated comparison, ATM, alert, and OCR data for reproducible evaluation.
+BorderWise is a multilingual, AI-powered cross-border financial decision-support platform designed to help international students optimize foreign-exchange and ATM costs, manage multi-currency expenses, and safeguard essential living reserves through transparent, user-confirmed financial workflows. It does not execute bank transfers, card payments, exchanges, or ATM withdrawals. The system uses intentionally simulated comparison, ATM, alert, and OCR data for reproducible evaluation.
 
 This assessment describes the security boundaries implemented in the MVP and the controlled limitations that are deliberately deferred to a production phase.
 
