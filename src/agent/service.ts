@@ -15,6 +15,7 @@ import type { AgentCard, AgentMessageResult, AgentResponse } from './contracts.j
 import { selectionSchema } from '../services/plan-inputs.js';
 import { accountIdSchema } from '../domain/validation.js';
 import { ReceiptService } from '../receipts/service.js';
+import { reserveGuidance } from './reserve-guidance.js';
 
 const SYSTEM_INSTRUCTIONS = `MULTILINGUAL & TOOL-CALLING RULES (CRITICAL):
 1. Language Matching: You must ALWAYS reply to the user in the exact language they used in their message. If the user prompts in Chinese (e.g., "我在首尔，需要取现金..."), your entire prose response must be in natural, helpful Simplified Chinese.
@@ -35,6 +36,7 @@ Card network is an optional internal decision field. For ATM requests ask when c
 Read current state when resuming. For a complete financial decision use compare_options, then preview_quote for the first adapter-ranked snapshot, or the explicitly selected snapshot ID.
 For current pending-plan risk use read_pending_plan_risks; listing plans alone does not assess current risk. Assessments are independent, not a combined forecast. Account deficits cannot be overridden by reserve acknowledgement. Do not attribute risk to an action without a before/after comparison. Offer to review supported options; never modify or cancel a plan.
 Risk pagination: default to the first page with no continuation. Only when the user asks for another page use the opaque next_continuation returned by the risk tool or server context, keeping the same limit. Plan IDs and database cursors are never continuation references. If pagination restarts, use the real first-page cards and recovery notice; do not manufacture an empty result or abandon the original risk request.
+Fixed-expense and emergency reserves are separate recorded targets, not bank subaccounts. Never assume a spending order between them or offer to release, exit or transfer a reserve. For reserve_question with an active_snapshot_id, read its current impact with preview_quote; do not invent a safe principal or revise a quote. request_clarification is required for ambiguous reserve intent. Reserve acknowledgements cannot authorize a financial write through chat.
 The app records activity completed elsewhere and executes no financial transactions. You cannot save, confirm, cancel, update a profile/reserve or post ledger entries.
 A chat yes never means Save. Only the separate frontend Save flow can create a pending plan. Card purchases remain unsupported.
 Use request_clarification or show_limitation when appropriate. No web, URL, SQL, code or other tools are permitted.
@@ -70,11 +72,15 @@ export class AgentService {
     const owner = randomUUID();
     const claim = await this.claim(sessionId, input, hash, owner);
     if (claim.replayed) return { httpStatus: claim.httpStatus, result: claim.result };
-    const { turnId, session, understanding } = claim;
+    const { turnId, session, understanding, reserveClarificationPending } = claim;
     const zh = isChineseText(input.message);
     const continuationRequested = /\b(?:resume|continue|yes|preview|proposal|options?)\b|(?:继续|确认|是的|好的|预览|方案|选项)/i.test(input.message);
     const riskRequested = /\b(?:risks?|assess\w*)\b|(?:风险|评估|储备金|安全)/i.test(input.message);
-    const runtime = new AgentTools(this.db, sessionId, understanding, this.compare, Boolean(input.snapshot_id) || understanding.decision_request || continuationRequested, input.snapshot_id,
+    const reserveFollowUp = !understanding.reserve_ambiguous && !understanding.decision_request && !input.attachment_id && !input.receipt_draft
+      && (reserveClarificationPending || /\breserves?\b|(?:储备金|预留金)/iu.test(input.message))
+      && /\b(?:would|will|if|impact|affect|use|using|exceed|breach|below|leave|left)\b|(?:动用|影响|低于|超过|不够|会|够不够)/iu.test(input.message)
+      && !/\b(?:pending|plans|risks?|assess\w*)\b|(?:计划|风险|评估)/iu.test(input.message);
+    const runtime = new AgentTools(this.db, sessionId, understanding, this.compare, Boolean(input.snapshot_id) || understanding.decision_request || continuationRequested || reserveFollowUp, input.snapshot_id,
       this.receipts, { attachment_id: input.attachment_id, receipt_draft: input.receipt_draft, message: input.message });
     let response: AgentResponse;
     let httpStatus = 200;
@@ -85,6 +91,8 @@ export class AgentService {
       const context = {
         message: input.message, purchase: understanding.purchase, unsupported_currency: understanding.unsupportedCurrency,
         decision_request: understanding.decision_request, missing: understanding.clarification.map(item => item.field),
+        reserve_question: reserveFollowUp, reserve_ambiguous: understanding.reserve_ambiguous,
+        pending_reserve_clarification: reserveClarificationPending,
         active_snapshot_id: active?.snapshotId ?? null, selected_snapshot_id: input.snapshot_id ?? null,
         provided: { objective: understanding.decision.objective ?? null, amount_present: Boolean(understanding.decision.amount), amount_basis: understanding.decision.amount_basis ?? null, funding_account: understanding.decision.funding_account ?? null, card_network: understanding.decision.card_network ?? null },
         ...(/\b(?:next|more|continue)\b/i.test(input.message) ? { pending_risk_pagination: await runtime.riskContinuation() } : {}),
@@ -98,8 +106,15 @@ export class AgentService {
         { role: 'user', content: input.message },
       ];
       const signal = AbortSignal.timeout(45000);
+      // An ambiguous reserve phrase must not silently reuse the last financial decision.
+      if (understanding.reserve_ambiguous) await runtime.execute('request_clarification', '{}');
+      // Once intent is explicit, a reserve follow-up needs only the owned preview.
+      // Do not let model tool selection turn this supported read into a limitation.
+      else if (reserveFollowUp && active && !understanding.clarification.length && !understanding.purchase && !understanding.unsupportedCurrency) {
+        await runtime.execute('preview_quote', JSON.stringify({ snapshot_id: active.snapshotId }));
+      }
       let callsUsed = 0;
-      for (let iteration = 0; iteration < 4; iteration++) {
+      for (let iteration = 0; iteration < 4 && !runtime.clarificationRequested && !runtime.proposals.length; iteration++) {
         const calls = await this.model.next(messages, AGENT_TOOLS, signal);
         if (!calls.length) break;
         if (callsUsed + calls.length > 8) break;
@@ -117,6 +132,7 @@ export class AgentService {
         const completedRead = !understanding.decision_request && !input.snapshot_id && !input.receipt_draft
           && !continuationRequested
           && !riskRequested
+          && !reserveFollowUp
           && runtime.cards.some(card => ['balance_summary', 'ledger_history', 'plan_list', 'plan_detail'].includes(card.type));
         if (runtime.proposals.length || runtime.clarificationRequested || runtime.limitation || terminalCard || completedRead) break;
       }
@@ -184,6 +200,9 @@ export class AgentService {
       decision_badge: makeBadge('User-Entered', 'User-supplied decision parameters retained by this demo session; not a quote'),
       active_proposal_id: runtime.proposals.at(-1)?.id ?? session.activeProposalId,
     };
+    if (u.reserve_ambiguous) return { ...base, status: 'clarification_required', cards: [],
+      explanation: text('Please clarify what “exit fixed reserve” means here. Chat has not changed your reserves, saved a plan or recorded any financial activity.', '请先澄清“退出固定支出储备金”的意思。聊天没有修改储备金额、保存计划或记录任何资金变动。'),
+      clarification: u.clarification, next_action: 'provide_details' };
     const receiptCard = [...runtime.cards].reverse().find(card => ['receipt_review', 'allocation_review', 'receipt_workflow_unavailable'].includes(card.type));
     if (receiptCard?.type === 'allocation_review') return {
       ...base, status: receiptCard.review_state === 'clarification_required' ? 'clarification_required' : 'ok',
@@ -200,7 +219,7 @@ export class AgentService {
     if (runtime.proposals.length) {
       const preview = runtime.proposals.at(-1)!.card.preview;
       base.explanation = preview.requires_reserve_acknowledgement
-        ? text('This option would use stated reserves. Review the authoritative shortfall and safe-principal guidance on the cards. Changing the amount requires a new complete quote; this chat action has not saved a plan.', '此选项会动用预设安全储备金。请查看卡片中的权威短缺金额和安全本金建议。更改金额需要新的完整报价；此聊天操作尚未保存计划。')
+        ? reserveGuidance(preview, zh)
         : text('Review the supported option and its current financial impact on the cards. Re-preview it in the plan flow, then tap Save if you want a pending plan. This chat action has not saved a plan.', '请查看卡片中支持的选项及其当前财务影响。在计划流程中重新预览后，如需创建待处理计划，请点击“保存”。此聊天操作尚未保存计划。');
       if (preview.principal.badge.status === 'Simulated') base.explanation += text(' The comparison quote is a simulated fixture, not a live offer.', ' 该比较报价为模拟示例，不是实时报价。');
       base.next_action = 'preview_before_frontend_save';
@@ -229,6 +248,9 @@ export class AgentService {
         if (previous && previous.payloadHash !== hash) throw new AppError(409, 'IDEMPOTENCY_CONFLICT', 'Message key was used with a different payload');
         if (previous?.status === 'completed') return { replayed: true as const, httpStatus: previous.httpStatus!, result: JSON.parse(previous.responseJson!) as AgentMessageResult };
         if (session.processingTurnId && session.leaseExpiresAt && session.leaseExpiresAt > new Date()) throw new AppError(409, 'AGENT_MESSAGE_IN_PROGRESS', 'This session has an in-progress message; retry the same key after it finishes');
+        const lastReply = await tx.agentMessage.findFirst({ where: { sessionId, role: 'assistant' }, orderBy: { id: 'desc' }, select: { responseJson: true } });
+        const lastResponse = lastReply?.responseJson ? JSON.parse(lastReply.responseJson) as AgentResponse : null;
+        const reserveClarificationPending = lastResponse?.clarification.some(item => item.field === 'reserve_intent') ?? false;
         const turnId = previous?.id ?? randomUUID();
         let explicitDecision = input.decision;
         if (input.snapshot_id) {
@@ -252,7 +274,7 @@ export class AgentService {
           create: { id: turnId, sessionId, idempotencyKey: input.idempotency_key, payloadHash: hash, requestJson: JSON.stringify(input), leaseOwner: owner },
           update: { leaseOwner: owner },
         });
-        return { replayed: false as const, session, turnId, understanding };
+        return { replayed: false as const, session, turnId, understanding, reserveClarificationPending };
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2028', 'P1008', 'P2034'].includes(error.code)) throw new AppError(503, 'DATABASE_BUSY', 'Retry the same message key after concurrent session activity finishes');

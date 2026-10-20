@@ -3,7 +3,7 @@ import { parseMajorMoney } from '../domain/validation.js';
 import { AppError } from '../domain/errors.js';
 import type { Decision } from './inputs.js';
 
-export type ClarificationField = 'objective' | 'amount' | 'currency' | 'funding_account' | 'amount_basis' | 'destination_account' | 'card_network';
+export type ClarificationField = 'objective' | 'amount' | 'currency' | 'funding_account' | 'amount_basis' | 'destination_account' | 'card_network' | 'reserve_intent';
 const questions: Record<ClarificationField, string> = {
   objective: 'Do you want to exchange into an owned account or withdraw cash?',
   amount: 'What amount do you need, and in which supported currency?',
@@ -12,6 +12,7 @@ const questions: Record<ClarificationField, string> = {
   amount_basis: 'Is this a principal amount, a total spending budget including fees, or a destination-currency target?',
   destination_account: 'Should the exchanged funds go to MYR Funding, KRW Card or KRW Cash?',
   card_network: 'Which card network will you use at the ATM (for example Visa or Mastercard)? If you do not know, say unknown; compatibility will remain unknown.',
+  reserve_intent: 'By “exit fixed reserve”, do you mean checking whether this option leaves too little for fixed expenses, or changing the fixed-expense reserve you entered?',
 };
 
 const chineseQuestions: Record<ClarificationField, string> = {
@@ -22,6 +23,7 @@ const chineseQuestions: Record<ClarificationField, string> = {
   amount_basis: '这是本金、包含手续费的总预算，还是目标到账金额？',
   destination_account: '换汇后的资金应转入马币资金账户、韩元卡还是韩元现金？',
   card_network: '您会在 ATM 使用哪种卡组织（例如 Visa 或 Mastercard）？如果不确定，请说“不知道”；兼容性将保持未知。',
+  reserve_intent: '您说的“退出固定支出储备金”，是想检查这个方案是否会影响固定开支，还是想修改自己设置的固定支出储备金额？',
 };
 
 export function isChineseText(text: string): boolean {
@@ -67,6 +69,12 @@ function chineseAmount(text: string): string {
 export function understand(message: string, previous: Decision, supplied?: Decision, requiresCardNetwork: (decision: Decision) => boolean = () => false) {
   const lower = message.toLowerCase();
   const zh = isChineseText(message);
+  const reserveAmbiguous = /\bexit\s+(?:(?:the|my|a)\s+)?fixed(?:[- ]expenses?)?\s+reserves?\b|(?:退出|移出|退出去)\s*固定(?:支出|开支|费用)?(?:储备金?|预留金?)/iu.test(message);
+  if (reserveAmbiguous) return {
+    decision: { ...previous }, defaults: [] as string[], financial: true, unsupportedCurrency: false, purchase: false,
+    decision_request: false, reserve_ambiguous: true, ambiguous_amount: false,
+    clarification: [{ field: 'reserve_intent' as const, question: (zh ? chineseQuestions : questions).reserve_intent }],
+  };
   const unsupportedCurrency = /\b(?:usd|eur|gbp|sgd|jpy|cny|rmb|aud|thb|inr|idr|vnd|php|hkd|twd|cad|chf)\b|(?:美元|欧元|英镑|新币|新加坡元|日元|人民币|港币|港元|台币|泰铢)/iu.test(message);
   const chineseCash = /(?:取现|提款|取钱|现金|ATM|取韩元)/iu.test(message);
   const chineseExchange = /(?:换汇|兑换|换钱|换韩元|汇率)/u.test(message);
@@ -147,7 +155,7 @@ export function understand(message: string, previous: Decision, supplied?: Decis
     decision, defaults, financial, unsupportedCurrency, purchase,
     decision_request: Boolean(supplied) || cash || exchange || (financial && Boolean(previous.objective) && !/\b(?:balances?|reserves?|ledger|history|plans)\b|(?:余额|储备金|账本|历史|计划)/iu.test(message)),
     clarification: missing.map(field => ({ field, question: (zh ? chineseQuestions : questions)[field] })),
-    ambiguous_amount: ambiguousAmount,
+    ambiguous_amount: ambiguousAmount, reserve_ambiguous: false,
   };
 }
 export type Understanding = ReturnType<typeof understand>;

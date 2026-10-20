@@ -63,3 +63,11 @@ Final isolated state contained one completed plan, two cancelled plans, no pendi
 - Comparison prices/network evidence remain seeded **Simulated**. OCR remains Simulated sample output. No bank execution, production authentication, Agent/Split/receipt frontend adoption, live market data or deployment verification is claimed.
 
 Existing `.env`, financial files and uploads were preserved, and prior Compare implementation files were retained. The temporary verification database and servers are removed/stopped after checking; application private records are not copied into verification artifacts.
+
+## Focused balance posting verification (20 October 2026)
+
+Traced Node's sole ledger writer, plan Save/completion, shared bills and repayment through frontend confirmation callbacks. No incorrect or duplicate deduction was found, so posting arithmetic and financial contracts were preserved. Home re-reads summary, ledger, pending plans and assessments after the shared revision changes; receipt/repayment success also bumps that revision. Refresh failures remain separate from a successful posting and must never trigger a fresh financial action.
+
+Fresh isolated API checks verified: Save and completion preview change no financial state; actual RM 102 principal plus a separate RM 1.20 fee debit MYR Funding once and credit the actual KRW 30,100; repeated/concurrent confirmations reuse one activity. A KRW 50,000 shared bill debits cash once, with KRW 15,000 personal allocation and KRW 35,000 receivable, not extra debits. Clearing KRW 15,000 in return for explicitly entered MYR 48.50 credits only MYR Funding, leaves KRW 20,000 debt, and adds no income. Replays preserve balances/ledger/debt; another completion or bill key cannot post the same plan/receipt again.
+
+Focused browser reads showed the corresponding final Home balances (RM 3,966.63, KRW Card 248,100, KRW Cash 30,000), separate fee, shared bill and settlement entries. These checks used disposable SQLite data/private storage; no reset, seed, migration or confirmation touched the configured financial database. Standalone card purchases remain unsupported. These are recorded app balances, never real bank transactions.

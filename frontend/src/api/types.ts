@@ -114,6 +114,7 @@ export interface AtmAlertsApi {
 export interface Page<T> { items: T[]; next_cursor: string | null }
 export interface ReserveImpact {
   applicability: 'applicable' | 'not_applicable'; reason: string
+  fixed_expense_reserve?: FV | null; emergency_reserve?: FV | null
   current_balance: FV | null; total_debit: FV | null; projected_balance: FV | null
   total_reserve: FV | null; projected_reserve_shortfall: FV | null; max_safe_total_debit: FV | null
 }
