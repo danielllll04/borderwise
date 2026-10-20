@@ -1,6 +1,6 @@
 import UI from './i18n-view'
 import type { ReactNode } from 'react'
-import { User, CheckCircle2, Lock, BarChart3, CircleDot, AlertTriangle, X } from 'lucide-react'
+import { User, CheckCircle2, Lock, BarChart3, CircleDot, AlertTriangle, X, type LucideIcon } from 'lucide-react'
 import type { Badge as B, Money, FV } from '@/api/types'
 import { useApp } from './ctx'
 
@@ -13,7 +13,7 @@ export const stamp = (iso: string) => {
   const f = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(d)
   return f.replace(',', ',') + ' KST'
 }
-const S: Record<B['status'], [string, string, any]> = {
+const S: Record<B['status'], [string, string, LucideIcon]> = {
   'User-Entered': ['bg-blue-50 text-cobalt', '', User], 'User-Confirmed': ['bg-emerald-50 text-emerald-700', '', CheckCircle2],
   Simulated: ['bg-slate-100 text-slate-600', '', Lock], Indicative: ['bg-violet-50 text-violet-700', '', BarChart3], Live: ['bg-green-50 text-green-700', '', CircleDot],
 }
@@ -40,4 +40,9 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
     <div className="max-h-[92vh] w-full max-w-[430px] overflow-y-auto rounded-t-3xl bg-canvas p-5 sm:rounded-3xl" onClick={e => e.stopPropagation()}>
       <div className="mb-3 flex items-center justify-between"><h3 className="text-lg font-extrabold">{t(title)}</h3><button aria-label={t('Close')} onClick={onClose} className="grid h-11 w-11 place-items-center"><X size={20} /></button></div>{children}</div></div>
 }
-export const Err = ({ e }: { e: any }) => e ? <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700"><UI text={e.code ? `${e.code}: ` : ''} />{e.message}</p> : null
+export function Err({ e }: { e: unknown }) {
+  if (!e) return null
+  const details = typeof e === 'object' && e !== null ? e as { code?: unknown; message?: unknown } : undefined
+  const message = e instanceof Error ? e.message : String(details?.message ?? e)
+  return <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700"><UI text={details?.code ? `${String(details.code)}: ` : ''} />{message}</p>
+}

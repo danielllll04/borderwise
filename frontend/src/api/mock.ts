@@ -54,7 +54,7 @@ export function mockApi(): BorderWiseApi {
   const needAck = (a: T.Assessment, ack?: { acknowledged: true; check_token: string }) => {
     if (a.requires_reserve_acknowledgement && !(ack?.acknowledged && ack.check_token === a.check_token)) throw new ApiError('RESERVE_ACKNOWLEDGEMENT_REQUIRED', 'Acknowledge the reserve warning', { preview: a }, 409)
   }
-  const save = (sel: T.Selection, ack?: any): T.PlanResponse => {
+  const save = (sel: T.Selection, ack?: { acknowledged: true; check_token: string }): T.PlanResponse => {
     const a = previewSel(sel); needAck(a, ack)
     const p: T.PlanResponse = { plan: { plan_id: uid(), quote: sel.quote, status: 'pending', reserve_breached: a.requires_reserve_acknowledgement }, context: sel.context, created_at: ts(), updated_at: ts() }
     plans.unshift(p); return p
@@ -108,7 +108,7 @@ export function mockApi(): BorderWiseApi {
       if (!n && !d?.amount) return reply({ status: 'clarification_required', explanation: 'I need an amount and currency.', clarification: [{ field: 'amount', question: 'How much cash do you need, and in which currency?' }], next_action: 'provide_details' })
       const amt = d?.amount?.amount_minor ?? (krw ? Math.round(n) : Math.round(n * 100))
       const opts = seedCompare({ objective: krw ? 'atm_withdrawal' : 'exchange', mode: krw ? 'target' : 'budget', amount: amt })
-      const options: T.AgentOption[] = opts.map(({ selection }, i) => { const id = uid(); proposals.set(id, selection); let preview: T.Assessment | null = null, blocking_error: string | null = null; try { preview = previewSel(selection) } catch (e: any) { blocking_error = e.message } return { snapshot_id: id, rank: i + 1, selection, preview, blocking_error } })
+      const options: T.AgentOption[] = opts.map(({ selection }, i) => { const id = uid(); proposals.set(id, selection); let preview: T.Assessment | null = null, blocking_error: string | null = null; try { preview = previewSel(selection) } catch (e: unknown) { blocking_error = e instanceof Error ? e.message : String(e) } return { snapshot_id: id, rank: i + 1, selection, preview, blocking_error } })
       return reply({ explanation: 'Simulated fixtures only; this is not a live market ranking. Chat cannot save or confirm plans.', cards: [{ type: 'quote_comparison', source: 'simulated_fixture', ranking: 'Ranked by ' + (krw ? 'lowest total MYR debit' : 'most KRW received') + '; static demo order.', options }] })
     }),
     agentProposalPreview: (_s, pid) => wait(() => previewSel(proposals.get(pid)!)),

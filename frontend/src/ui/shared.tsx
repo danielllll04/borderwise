@@ -1,6 +1,6 @@
 import UI from './i18n-view'
 import { useEffect, useState } from 'react'
-import type { Assessment, Selection, PlanResponse } from '@/api/types'
+import type { Assessment, FV, Selection, PlanResponse } from '@/api/types'
 import { Amount, Badge, Btn, Card, Err, Modal, Warn, fmt } from './kit'
 import { uid } from '@/api/api'
 import { useApp } from './ctx'
@@ -28,14 +28,14 @@ export function SaveFlow({ preview, save, onReduce, onDone, onClose }: {
   onReduce?: (maxSafeTotalDebit: number) => void; onDone: (p: PlanResponse) => void; onClose: () => void
 }) {
   const { t } = useApp()
-  const [a, setA] = useState<Assessment | null>(null), [err, setErr] = useState<any>(null), [busy, setBusy] = useState(false)
+  const [a, setA] = useState<Assessment | null>(null), [err, setErr] = useState<Error | null>(null), [busy, setBusy] = useState(false)
   const [key] = useState(uid)
   const doSave = async (ack?: Assessment) => {
     setBusy(true); setErr(null)
     try { onDone(await save(key, ack ? { acknowledged: true, check_token: ack.check_token } : undefined)) }
-    catch (e: any) { if (e.details?.preview) setA(e.details.preview); setErr(e); setBusy(false) }
+    catch (e: unknown) { const error = e instanceof Error ? e : new Error(String(e)); if ('details' in error && error.details && typeof error.details === 'object' && 'preview' in error.details) setA(error.details.preview as Assessment); setErr(error); setBusy(false) }
   }
-  useEffect(() => { preview().then(r => { setA(r); if (!r.requires_reserve_acknowledgement) doSave() }).catch(setErr) }, [])
+  useEffect(() => { preview().then(r => { setA(r); if (!r.requires_reserve_acknowledgement) doSave() }).catch(e => setErr(e instanceof Error ? e : new Error(String(e)))) }, [])
   if (!a) return <Modal title="Checking your plan…" onClose={onClose}><Err e={err} />{!err && <p className="text-sm text-ink/60"><UI text="Running the fee-aware budget check." /></p>}{err && <Btn kind="outline" className="mt-3 w-full" onClick={onClose}><UI text="Back" /></Btn>}</Modal>
   const short = a.projected_reserve_shortfall.Money.amount_minor
   const safe = a.safe_principal
@@ -56,5 +56,5 @@ export function SaveFlow({ preview, save, onReduce, onDone, onClose }: {
       <Btn kind="coral" className="w-full" disabled={busy} onClick={() => doSave(a)}><UI text="Save plan anyway (override reserve)" /></Btn>
     </div></Modal>
 }
-const Line = ({ k, v }: { k: string; v: { Money: any; badge: any } }) => { const { t } = useApp(); return <div className="flex items-start justify-between gap-3"><span className="text-ink/60">{t(k)}</span><div className="text-right"><div className="font-bold">{fmt(v.Money)}</div><Badge b={v.badge} /></div></div> }
+const Line = ({ k, v }: { k: string; v: FV }) => { const { t } = useApp(); return <div className="flex items-start justify-between gap-3"><span className="text-ink/60">{t(k)}</span><div className="text-right"><div className="font-bold">{fmt(v.Money)}</div><Badge b={v.badge} /></div></div> }
 export { Amount }

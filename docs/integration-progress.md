@@ -90,6 +90,125 @@ Not newly exercised here: real-Groq receipt decisions, large-page UI pagination,
 
 Next task requires another instruction: review this frontend checkpoint and choose the next maintenance/integration work. The user authorized committing/pushing this completed step and updating draft PR #5 using the completed checks. No merge or additional integration is performed.
 
+## Phase 0 integration discovery (20 October 2026)
+
+### Repository state
+
+- Current branch: `backend/money-ledger-agent`.
+- `HEAD`: `4328a3a`, merge pull request #5 from `codex/frontend-compare`.
+- `HEAD` matches `origin/backend/money-ledger-agent`, which is also `origin/HEAD`; no pull was needed.
+- The worktree was clean before this Phase 0 update. No application logic was changed.
+- PR #5's integration commits are visible in history: `4195fea` Compare/Home, `679b4ad` Agent/pending-risk, `1d69afe` Split/receipt/repayment, `d57f633` Chinese/global localization, and `69836ad` ATM/alerts.
+
+### Integration map
+
+| Surface | Entry point | Authoritative connection |
+| --- | --- | --- |
+| Frontend | `frontend/src/main.tsx`, `frontend/src/App.tsx` | Vite React app; `frontend/src/api/api.ts` selects live or mock facades. |
+| Node server | `src/server.ts` -> `src/app.ts` | Fastify on `HOST`/`PORT` (default loopback `:3000`); Node owns financial writes. |
+| Node Home/plans | `src/app.ts` | `/api/profile`, `/api/balances`, `/api/home`, `/api/ledger`, `/api/plans`, plan preview/save/cancel/completion-preview/confirm. |
+| Node Agent | `src/agent/routes.ts`, `src/agent/service.ts` | Session/history/message/proposal routes under `/api/agent`; Agent parses intent and orchestrates read/preview tools. |
+| Node Compare/ATM | `src/compare/routes.ts`, `src/compare/alerts-routes.ts` | `/api/compare/quotes`, `/api/atms`, `/api/alerts/check`; comparison uses the configured adapter and ATM/alert reads do not write. |
+| Node receipts | `src/receipts/routes.ts` | Private upload, extraction, review, edit, allocation proposal and explicit receipt confirmation under Agent session routes. |
+| Node settlements | `src/settlements/routes.ts` | `/api/receivables` reads and `/api/receivables/:id/settlements/confirm` is the explicit repayment writer. |
+| Python/FastAPI | `main.py` -> `steve_router.py` | Stateless `/api/compare/quotes`, `/api/alerts/check`, OCR and allocation preview endpoints. Node adapters call these where configured. |
+
+### Frontend request contracts verified
+
+- `frontend/src/api/api.ts` sends live Home/Compare/Agent/Split/repayment requests to Node same-origin `/api` routes; the live facade does not send financial writes to Python.
+- Agent messages use `POST /api/agent/sessions/:sessionId/messages`; proposal preview/save use the Node proposal routes. Session history and receipt-event pagination use the corresponding Node reads.
+- Compare uses `POST /api/compare/quotes`; ATM & Alerts uses `GET /api/atms?card_network=...` and `POST /api/alerts/check`.
+- Split upload/extraction/review/allocation/confirmation uses Node Agent-session receipt routes. Repayment reads and confirmation use Node receivable/settlement routes.
+- `frontend/src/ui/Agent.tsx`, `Compare.tsx`, `Home.tsx`, `Split.tsx`, `Repayment.tsx` and `Stretch.tsx` are the current integration surfaces. `Stretch.tsx` renders server-returned ATM metadata and alert values; it does not use frontend ATM fixtures.
+
+### Package, test and verification plan
+
+- Root Node scripts: `npm run build`, `npm run typecheck`, `npm run lint`, database generation/migration/seed, and demo scripts in the root `package.json`.
+- Frontend scripts: `npm run dev`, `npm run build`, `npm run lint`; the frontend README documents `npm ci` and also mentions `pnpm install`, but the initial frontend commit tracked `package-lock.json`, not `pnpm-lock.yaml`. `pnpm` is unavailable in the current environment, so npm is the reproducible package-manager path and the two lockfiles should be treated as drift until a team decision says otherwise.
+- Python runtime dependencies are pinned in `requirements-compare.txt`; no Python test files or test configuration were found. Available verification is the documented FastAPI/uvicorn runtime and calculator/split scripts.
+- Phase 0 did not rerun build, typecheck, lint, dependency audits, browser checks or write-path scenarios; those belong to Phase 1 and later phases after explicit `CONTINUE`.
+
+### Known outstanding issues carried into Phase 1
+
+- The existing checkpoint records frontend `npm run build` failures in the calendar/resizable UI types and root lint failures in unrelated legacy files; these must be reproduced in Phase 1 before any fixes.
+- The existing checkpoint records development-only dependency audit findings and a clean production-only audit; those findings must be rerun against the merged branch.
+- No automated test suite was found. Browser/runtime verification and financial mutation/replay scenarios remain planned work, not Phase 0 evidence.
+
+## Phase 1 build, typecheck, lint and dependency baseline (20 October 2026)
+
+### Command results
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Root `npm run build` | **PASS** | `tsc -p tsconfig.build.json` completed successfully. |
+| Root `npm run typecheck` | **PASS** | `tsc --noEmit` completed successfully. |
+| Root ESLint | **PASS** | `node node_modules/eslint/bin/eslint.js .` completed with no errors. |
+| Frontend `npm run build` | **PASS** | Frontend TypeScript build and Vite production bundle completed. |
+| Frontend `npm run lint` | **PASS** | Oxlint completed with existing warnings only. |
+| Python compileall | **PASS** | Main, schema, seed, router, calculator and splitter modules compiled. |
+| `steve_calculator.py` self-tests | **PASS** | ATM, exchange budget, target alert and validation cases all passed. |
+| Root `npm ci --dry-run --ignore-scripts` | **PASS** | `package-lock.json` is internally installable. |
+| Frontend `npm ci --dry-run --ignore-scripts` | **PASS** | Frontend `package-lock.json` is internally installable. |
+| Root full audit | **FAIL / 3 high** | `prisma -> @prisma/config -> deepmerge-ts`; fix requires Prisma `7.10.1`, a major upgrade. |
+| Root `npm audit --omit=dev` | **FAIL / 3 high** | npm still includes the Prisma chain through `@prisma/client`; deployment-artifact relevance needs separate packaging review. |
+| Frontend full audit | **FAIL / 8 dev-only** | Five high and three moderate findings through Tailwind 3.4.1’s build graph. |
+| Frontend `npm audit --omit=dev` | **PASS / 0** | No audited frontend production dependencies reported. |
+| Automated tests | **NOT AVAILABLE** | No test files or test configuration were found. |
+
+Frontend lint warnings remain non-blocking: Fast Refresh export warnings, one carousel state-in-effect warning, and existing hook dependency/ref-cleanup warnings. No lint rule or audit was suppressed.
+
+### Phase 1 fixes
+
+- Updated the Day Picker wrapper from the removed `table` class key to the installed v10 `month_grid` key in `frontend/src/components/ui/calendar.tsx`.
+- Updated the resizable wrapper to the installed v4 `Group` and `Separator` exports in `frontend/src/components/ui/resizable.tsx`.
+- Replaced root ESLint `any` errors with typed domain values or guarded `unknown` handling in `frontend/src/api/mock.ts`, `frontend/src/ui/ctx.tsx`, `frontend/src/ui/kit.tsx` and `frontend/src/ui/shared.tsx`.
+- Converted `frontend/tailwind.config.js` to ESM and removed the type-only `actionTypes` runtime object from `frontend/src/hooks/use-toast.ts`.
+- No package versions, lockfiles, financial rules, fixtures or backend routes were changed.
+
+### Dependency findings and remaining blockers
+
+- Frontend `braces@3.0.3` is reached by `tailwindcss@3.4.1 -> chokidar@3.6.0` and `tailwindcss@3.4.1 -> micromatch@4.0.8`; the advisory is GHSA-vfj7-8cjw-p6xm and npm reports no compatible automatic fix.
+- Frontend `postcss-selector-parser@6.1.5` is reached by `tailwindcss@3.4.1` and `postcss-nested@6.2.0`; the advisory is GHSA-rj75-hqrm-r3gf. The patched parser 7.x requires newer parent packages, so no override was applied.
+- The frontend findings are build-time tooling findings and absent from npm's production-only tree, but they remain unresolved development vulnerabilities.
+- Root `prisma@6.19.3 -> @prisma/config@6.19.3 -> deepmerge-ts@7.1.5` remains high severity. npm offers Prisma `7.10.1` as a major upgrade; it was not applied because the repository pins Prisma 6 and the docs require the client/CLI to stay aligned.
+- Python and Node runtime behavior remains green after the source-only fixes. Tracked legacy `__pycache__` files were regenerated by Python verification and are worktree artifacts, not intentional application changes.
+
+Phase 1 is complete. Browser scenarios, Chinese intent/UI integration, ATM/alert runtime checks, financial journey tests, receipt/repayment journeys and security/reliability review remain Phase 2 onward and require another instruction.
+
+## Phase 2 Chinese intent and global language switching (20 October 2026)
+
+### Parser and orchestration verification
+
+Focused `tsx` probes exercised the exact requested input and individual terms:
+
+| Input | Result |
+| --- | --- |
+| `我有银联卡，想取10万韩元现金，帮我对比附近的ATM` | **PASS**: `atm_withdrawal`, `100000 KRW`, `unionpay`, `krw_cash` destination; source account remains missing and receives a Chinese clarification. Nearby/location is not a supported decision slot and was not invented. |
+| `10万韩元` | **PASS**: `100000 KRW`; Chinese clarification fields are returned. |
+| `银联` | **PASS**: `card_network: unionpay`; Chinese clarification fields are returned. |
+| `取现` | **PASS**: `atm_withdrawal`; amount, source and network are clarified in Chinese. |
+| English equivalent with UnionPay, `100000 KRW`, cash and ATM | **PASS**: same internal objective, amount, network and destination semantics. |
+| `10万韩元现金 银联` | **PASS**: `100000 KRW`, ATM withdrawal, UnionPay, KRW Cash destination. |
+| `我想换汇，需要一万韩元` | **PASS**: `exchange`, `10000 KRW`, Chinese clarification for amount basis/accounts. |
+
+The complete request with explicit `使用马币资金账户` generated the actual DemoAdapter tool call `compare_options` with `{}` arguments after server-side parsing; internal context contained `objective: atm_withdrawal`, `amount_basis: destination_target`, `funding_account: myr_funding`, `card_network: unionpay` and `destination_account: krw_cash`. The deterministic fixture adapter then returned only Shinhan and Woori for UnionPay, with simulated compatibility deliberately remaining `unknown`.
+
+### Defects fixed
+
+- Arabic-plus-Chinese-unit input such as `10万韩元` previously hit the Chinese-word normalizer on standalone `万` and threw `INVALID_AMOUNT_TEXT`; standalone unit tokens now pass through to the existing digit/unit scaling path.
+- `KRW Cash`/`韩元现金` in an ATM phrase was previously misclassified as the funding account. ATM parsing now keeps KRW Cash as the destination and asks for MYR Funding or KRW Card when the source is not explicit.
+- Explicit exchange intent now takes precedence when exchange and cash wording coexist, so `换汇到韩元现金` resolves to `exchange` with `krw_cash` as destination.
+
+### UI locale verification
+
+- Browser verification ran against Vite on loopback in live mode and showed the Chinese Agent/navigation copy after selecting `中文`; the live Agent session request returned `HTTP_502` because Node was not running.
+- A separate Vite mock-mode browser run confirmed the global `English`/`中文` toggle translates navigation and Agent/ATM availability copy. Mock mode intentionally disables financial screens and does not provide numeric ATM/Compare cards.
+- Numeric invariance and translated server-backed Agent/Compare/ATM/Split cards were **BLOCKED** in this phase because no Node server/database session was running. No financial state was changed.
+
+### Phase 2 status
+
+Parser and tool-routing checks: **PASS**. Global locale switching: **PASS** for rendered available UI copy. Full live UI card and backend journey verification: **BLOCKED** pending the documented Node/Python runtime setup. No automated test suite exists; verification used focused parser/orchestration probes and browser checks. Phase 3 remains pending the next instruction.
+
 ## Resume commands and configuration (PowerShell)
 
 Start from the repository root. Preserve private `.env`, financial databases and uploads. **Do not run reset, reseed or SQLite-to-Supabase copy against the existing installation.** No migration is introduced by this checkpoint.
@@ -160,3 +279,53 @@ node node_modules/vite/bin/vite.js build  # bundling only; not a full build pass
 ```
 
 For future write-path verification create a disposable database/private upload directory and override configuration only in those child processes. One-off verification servers/databases are cleaned up after checking; local ignored evidence is not required to run the app. Keep financial confirmation behind existing explicit frontend-action routes. This checkpoint is prepared for draft PR review. Do not merge or begin deferred tasks.
+
+## Phase 3 ATM and alerts verification (20 October 2026)
+
+### Live backend verification
+
+The documented local services ran without reseeding or resetting the existing database: Python Steve on `127.0.0.1:8000`, Node on `127.0.0.1:3000` with `COMPARE_PROVIDER=steve`, and Vite live mode on `127.0.0.1:5176`.
+
+- `GET /api/atms?card_network=unknown` returned all four canonical providers in cost order: KB Kookmin, Shinhan, Woori and CU.
+- Visa returned all four; Mastercard returned KB Kookmin, Shinhan and CU; UnionPay returned Shinhan and Woori; Plus returned KB Kookmin and Woori.
+- Each response contained server-provided rates, converted MYR fee lines, supported networks, distances, Simulated provenance, Naver HTTPS links and Kakao HTTPS links.
+- The live frontend rendered the same Node response without frontend ATM fixtures. It displayed both map buttons for every provider, operator fees, distances, network badges and compatibility provenance.
+- UnionPay browser filtering visibly excluded KB Kookmin and CU and displayed only Shinhan/Woori.
+- English and Chinese browser views retained identical financial values: for UnionPay, RM 344.27 / ₩100,000 for Shinhan and Woori; only labels, statuses and descriptive UI copy changed.
+- Map links were verified in the DOM against the intended `map.naver.com` and `map.kakao.com` URLs.
+
+### Target-rate alert verification
+
+`POST /api/alerts/check` with `{ "pair": "MYR/KRW", "target_rate": 315, "direction": "above" }` returned current rate `315.5`, target `315`, `triggered: true`, the seeded seven-day history `[309.5, 310.2, 311, 312.8, 313.5, 314.2, 315.5]`, planned amount `RM 500.00`, estimated proceeds `₩157,750`, and a `Simulated` badge from `Seeded 7-Day FX Dataset`. The recommendation explicitly stated that no exchange was executed.
+
+The live browser displayed the alert result and chart. Two missing Chinese labels were found and fixed in `frontend/src/ui/i18n-ui.ts`: `Alert me when RM 1 buys at least` and `Target reached`. The rerender showed `当 RM 1 至少可兑换` and `已达到目标`; all numeric values remained unchanged.
+
+### Phase 3 status
+
+ATM provider coverage, fee/rate consistency, compatibility filtering, provenance, map links, alert threshold behavior and English/Chinese numeric equivalence: **PASS**. No financial writes or plan/session mutations were performed. The live services were temporary verification processes and were stopped after the browser checks. Phase 4 remains pending the next instruction.
+
+## Phase 4 Agent-to-Compare-to-Reserve-to-Home journey (20 October 2026)
+
+### Baseline
+
+The existing local database was used without reseeding or resetting. Baseline Home state was MYR Funding `RM3970.33`, KRW Card `₩238000`, KRW Cash `₩95000`, fixed plus emergency reserve `RM2000.00`, available above reserve `RM1970.33`, budget status `Above reserve`, and no pending plans.
+
+### Scenario results
+
+- The exact requested text containing `₩100,000` was rejected with `INVALID_AMOUNT_TEXT` because the current parser deliberately rejects grouped amounts rather than silently normalizing them. This is a documented validation limitation, not an invented amount.
+- The equivalent ungrouped supported request with Visa and `MYR Funding` parsed to `100000 KRW`, `atm_withdrawal`, Visa, `myr_funding` and `krw_cash`, then returned four Steve-ranked simulated options.
+- The first option was KB Kookmin at `RM343.74` total debit and `₩100000` received. The Agent response remained read/preview-only and did not save a plan.
+- The required frontend proposal-preview route returned `RM343.74` total debit, projected MYR balance `RM3626.59`, reserve `RM2000.00`, shortfall `RM0`, and `requires_reserve_acknowledgement: false`.
+- Explicit proposal Save created one pending plan. Home balances remained exactly unchanged, and the pending plan appeared separately with provider KB Kookmin and total debit `RM343.74`.
+- A deliberate `₩1000000` Visa/MYR target produced a reserve-breach preview: projected balance `RM741.98`, reserve shortfall `RM1258.02`, and `requires_reserve_acknowledgement: true`. Safe-principal guidance correctly required a revised quote rather than inventing a value.
+- The saved safe pending plan was cancelled through `POST /api/plans/:planId/cancel`; Home balances remained unchanged and no pending plans remained.
+
+### Integration limitations discovered
+
+- The exact comma-formatted scenario needs either user clarification or a separately reviewed parser change before it can satisfy the stated `₩100,000` acceptance input.
+- Explicit `KRW Card` funding reached Node correctly but Steve rejected the current KRW-funded ATM representation because its authoritative principal/fee/total fields are MYR-based. The supported integrated journey currently requires `MYR Funding` for Steve ATM quotes.
+- Seoul/nearby location is preserved as user intent only; no location-based pricing or device location was invented.
+
+### Phase 4 status
+
+Supported MYR-funded Agent -> Compare -> reserve preview -> explicit Save -> Home -> cancel journey: **PASS**. Exact grouped-amount scenario and KRW-funded ATM variant: **BLOCKED/UNSUPPORTED**, documented above. No completion confirmation or financial posting was performed in this phase. Phase 5 remains pending the next instruction.

@@ -88,11 +88,11 @@ export function understand(message: string, previous: Decision, supplied?: Decis
     || exchange && !cash && previous.objective === 'exchange';
   let decision: Decision = freshDecision && !continuing ? {} : { ...previous };
   const defaults: string[] = [];
-  if (cash && !exchange) decision.objective = 'atm_withdrawal';
-  if (exchange && !cash) decision.objective = 'exchange';
+  if (exchange) decision.objective = 'exchange';
+  else if (cash) decision.objective = 'atm_withdrawal';
   const amounts: { currency: 'MYR' | 'KRW'; text: string }[] = [];
   const currencyLabels = 'MYR|RM|KRW|won|马币|令吉|韩元|韩币|₩';
-  const amountMessage = message.replace(new RegExp(`([零〇一二两三四五六七八九十百千万]+)\\s*(${currencyLabels})`, 'giu'), (_all, amount: string, currency: string) => `${chineseAmount(amount)} ${currency}`)
+  const amountMessage = message.replace(new RegExp(`([零〇一二两三四五六七八九十百千万]+)\\s*(${currencyLabels})`, 'giu'), (_all, amount: string, currency: string) => /^[十百千万]$/u.test(amount) ? `${amount} ${currency}` : `${chineseAmount(amount)} ${currency}`)
     .replace(new RegExp(`(${currencyLabels})\\s*([零〇一二两三四五六七八九十百千万]+)`, 'giu'), (_all, currency: string, amount: string) => `${currency} ${chineseAmount(amount)}`);
   for (const match of amountMessage.matchAll(new RegExp(`(?:\\b)?(${currencyLabels})\\s*(\\d+(?:\\.\\d+)?)(万|千)?(?!\\d|\\.\\d)`, 'giu'))) {
     amounts.push({ currency: currencyForLabel(match[1]!), text: scaledMajorText(match[2]!, match[3]) });
@@ -113,7 +113,7 @@ export function understand(message: string, previous: Decision, supplied?: Decis
   } else if (financial && /\b\d/.test(message) && !decision.amount) ambiguousAmount = true;
   for (const account of Object.values(ACCOUNTS)) {
     if (lower.includes(account.id) || lower.includes(account.display_name.toLowerCase())) {
-      if (/\b(?:from|fund(?:ing)?|using)\b/.test(lower)) decision.funding_account = account.id;
+      if (/\b(?:from|fund(?:ing)?|using)\b/.test(lower) && !(decision.objective === 'atm_withdrawal' && account.id === 'krw_cash')) decision.funding_account = account.id;
       if (/\b(?:to|into|destination)\b/.test(lower) && decision.objective === 'exchange') decision.destination_account = account.id;
     }
   }
@@ -124,7 +124,7 @@ export function understand(message: string, previous: Decision, supplied?: Decis
   }
   if (/(?:韩元现金)/u.test(message)) {
     if (decision.objective === 'exchange' && /(?:到|至|转入|存入)/u.test(message)) decision.destination_account = 'krw_cash';
-    else decision.funding_account = 'krw_cash';
+    else if (decision.objective !== 'atm_withdrawal') decision.funding_account = 'krw_cash';
   }
   if (network) decision.card_network = network;
   decision = { ...decision, ...supplied };

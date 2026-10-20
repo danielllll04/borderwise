@@ -18,7 +18,9 @@ No supporting compatibility evidence.|缺少兼容性证明。
 Provider withdrawal guide (original)|服务商取款指南（原文）
 Check target rate|检查目标汇率
 Checking target rate…|正在检查目标汇率…
+Alert me when RM 1 buys at least|当 RM 1 至少可兑换
 Seeded rate history chart|预置汇率历史图
+Target reached|已达到目标
 Target not reached|尚未达到目标
 Reference estimate before fees:|手续费前的参考估算：
 Provider recommendation (original)|服务商建议（原文）
