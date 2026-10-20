@@ -1,5 +1,58 @@
 # Frontend integration checkpoint
 
+## Phase 5–7 continuation review (20 October 2026)
+
+The worktree was checked before synchronization and was clean on `backend/money-ledger-agent`. `git fetch origin backend/money-ledger-agent` then showed `HEAD` and `origin/backend/money-ledger-agent` both at `3177946` (`0 0` divergence), so no pull was needed. No application code or dependency was changed in this continuation; the only intended change is this evidence update.
+
+### Phase 5 — receipt, allocation, confirmation and repayment
+
+The current Phase 5 section above already contains the complete observed isolated HTTP/browser journey. It remains the authoritative detailed result: Steve's image OCR returned the fixed **Hongdae Samgyeopsal House** sample with an explicit **Simulated** badge/fixture notice; a user correction created a new review version; Node validated the KRW 50,000 allocation (payer KRW 15,000, Daniel KRW 21,000, Tze Loon KRW 14,000); only the documented reviewed-proposal confirmation posted the single full-bill debit; receivables were not income; and partial/full repayments and exact-body replays produced no duplicate posting.
+
+An additional isolated HTTP replay was attempted using a newly migrated/seeded temporary SQLite database, private temporary receipt storage, Steve at loopback `:8011`, and the compiled Node server at loopback `:3011`. Extraction, review correction, allocation, confirmation/replay, and the three documented settlement confirmations all returned success before the harness's final reporting assertion failed because its `T` temporary-directory variable was placed after rather than before the `node` command. The temporary database and processes were removed by its trap. **Result: FAIL (harness/reporting defect only); do not count this run as fresh accounting proof.** No financial data outside the disposable database was touched and no financial rule was changed to make the run pass.
+
+The repository's retained isolated regression command was then run successfully:
+
+```text
+npm run demo:split
+```
+
+It confirmed a simulated KRW 50,000 shared expense: one KRW Card debit of 50,000, personal expense 15,000, receivables 21,000 and 14,000, followed by a 10,000 KRW settlement that credited the Card and reduced only the receivable. The output contained a `shared_expense` entry followed by a `settlement` entry, not income. This is a narrower fixture regression than the prior full Phase 5 HTTP/browser observation.
+
+Pending-plan follow-up remains a read-only `GET /api/plans/assessments` instruction after receipt confirmation/settlement. The supported receipt fixture is paid in KRW, while the implemented reserve calculation is MYR Funding-only; it must not manufacture a causal reserve warning for a KRW receipt. Earlier documented observations showed no false reserve claim. A scenario that connects a receipt payment to a MYR reserve impact is not supported by the same-currency KRW receipt contract and is **NOT RUN** rather than inferred.
+
+### Phase 6 — security, reliability and consistency
+
+| Check | Result | Actual outcome |
+| --- | --- | --- |
+| Financial-write route audit | PASS | `rg -n "app\\.(post|patch|put|delete)\\(" src` identified the narrow Node confirmation routes. Receipt extraction/allocation are review/preview only; settlement writes only through `/api/receivables/:id/settlements/confirm`. |
+| Python/Node boundary audit | PASS | `src/receipts/steve-adapter.ts` references only `/api/split/allocate/preview`; no Node/frontend reference to Python's legacy allocation or settlement writers was found. |
+| Pending-plan mutation boundary | PASS | receipt/settlement results expose a read-only assessments follow-up; no assessment route posts balances or plans. |
+| Idempotency/retry boundary | PASS (prior full observation) | durable receipt confirmation and settlement keys/replay paths remain documented above; retained Split fixture also verifies one bill posting/one partial settlement. The additional fresh HTTP harness is not counted because of its reporting failure. |
+| LLM authority boundary | PASS | Agent financial mutations remain absent; receipt confirmation is an explicit frontend route and allocation is schema-validated preview data. |
+| Frontend secret scan | PASS | `git grep` over `frontend/src` and Vite configuration found no server credential variable or secret. A broad scan's SVG `key` attribute was a false textual match. |
+| Simulated/indicative labelling | PASS | OCR, Split fixture, calculation and budget output explicitly identify simulated provenance. No live OCR, banking, ATM availability or FX claim was made. |
+| Agent/manual consistency | PASS (prior Phase 5 observation) | Agent/Split, Home and authoritative Node receivable/ledger reads were previously compared on the same disposable backend state. No new browser run was performed in this continuation. |
+
+Known security limitation remains: authentication/multi-user isolation is absent and these local APIs must stay loopback-only. This is not a production authorization review.
+
+### Phase 7 — regression/build verification
+
+| Command | Result | Outcome |
+| --- | --- | --- |
+| `npm run build` | PASS | Backend TypeScript build completed. |
+| `npm run typecheck` | PASS | Completed with no TypeScript diagnostics. |
+| `npm run lint` | PASS | ESLint completed with no errors. |
+| `cd frontend && npm run build` | PASS | `tsc -b && vite build` completed. |
+| `cd frontend && npm run lint` | PASS with 10 existing warnings | Oxlint reported no errors; warnings are Fast Refresh/hooks/carousel advisory warnings. |
+| `.venv/bin/python -m compileall -q main.py schemas.py steve_router.py steve_calculator.py steve_splitter.py` | PASS | Python modules compiled. |
+| `.venv/bin/python steve_calculator.py` | PASS | All deterministic calculator self-tests passed. |
+| `npm run demo:split` | PASS | Isolated temporary SQLite Split/partial-settlement regression passed. |
+| `npm audit --omit=dev --audit-level=high` | FAIL / 3 high | Prisma 6.19.3 → `@prisma/config` → `deepmerge-ts <8`; npm's offered remediation is the breaking Prisma 7.10.1 upgrade. Not applied. |
+| `cd frontend && npm audit --omit=dev --audit-level=high` | PASS / 0 | No production frontend vulnerabilities reported. |
+| `git diff --check` | PASS | No whitespace errors. |
+
+No defect was fixed in this continuation, so no new regression test was added. The stored Phase 5 observations remain the complete integration evidence; the new temporary HTTP harness needs a small command-scoping repair before it can be counted as repeatable fresh proof. Existing Phase 4 limitations remain unchanged: grouped `₩100,000` parsing rejects with `INVALID_AMOUNT_TEXT`, KRW Card-funded ATM quotes are unsupported by the MYR-based representation, and Seoul/nearby wording is not used for pricing.
+
 Status on 20 October 2026: **Compare/Home checkpoint `4195fea` and Agent/pagination checkpoint `679b4ad` remain preserved on `codex/frontend-compare`. This frontend checkpoint adds completed Split and Agent receipt/repayment adoption to draft PR #5.** Verification results below are reused for the authorized commit/push; tests are not rerun. No merge or further feature work is performed. The observed receipt/repayment checks use disposable data only.
 
 ## Completed
