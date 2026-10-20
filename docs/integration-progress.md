@@ -4,6 +4,8 @@ Status on 20 October 2026: **Compare/Home checkpoint `4195fea` and Agent/paginat
 
 ## Completed
 
+- UI finishing task 1: Chinese interface labels, statuses, review/confirmation forms, notices and starter prompts now use the existing language setting. Display translations preserve user messages, provider names, provenance, IDs and financial payloads. Chinese read-intent routing and explicit currency integer words are supported conservatively; approximate, signed and abbreviated ambiguous amounts still require clarification. No browser tests/demos or dependency upgrades are run in this finishing step. Build/lint will be run once after all three requested implementation tasks; until then these new changes are statically reviewed only.
+
 - Manual Compare calls Node's validated shared Steve comparison boundary, preserving objective, amount mode, currency, funding account and card network. It displays backend ranking/amounts/fees/compatibility/provenance and uses trusted proposals, current reserve preview, explicit acknowledgement and Save. Saving creates a pending plan with no balance/ledger effect.
 - Home reads Node profile, separate MYR/KRW balances, stated reserves, ledger, pending plans and independent risk assessments. Actual MYR budget status stays distinct from forecast pending-plan risk. Backend source badges remain visible.
 - Actual completion collects principal, individually paid fees, amount received, supported owned accounts and completion timestamp. Existing Node preview returns quote differences/account impacts/reserve warnings. Only explicit confirmation with applicable acknowledgement posts actuals. Stable keys and identical-body retries preserve backend idempotency.

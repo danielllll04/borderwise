@@ -1,3 +1,4 @@
+import UI from './i18n-view'
 import { useState } from 'react'
 import { Badge, Btn, Card, Title } from './kit'
 import { useApp } from './ctx'
@@ -34,7 +35,7 @@ export default function Stretch() {
     <Card>
       <button onClick={() => setOpen(o => !o)} className="flex min-h-[44px] w-full items-center justify-between font-bold">{t('Target-rate alert')}<ChevronDown className={open ? 'rotate-180' : ''} size={18} /></button>
       {open && <div className="space-y-3">
-        <label className="flex items-center gap-2 text-sm">{lang === 'zh' ? '当 RM 1 可换至少' : 'Alert me when RM 1 buys at least'}<input inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} className="min-h-[44px] w-20 rounded-xl border border-ink/15 px-2 text-center font-bold" />KRW</label>
+        <label className="flex items-center gap-2 text-sm"><UI text={lang === 'zh' ? '当 RM 1 可换至少' : 'Alert me when RM 1 buys at least'} /><input inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} className="min-h-[44px] w-20 rounded-xl border border-ink/15 px-2 text-center font-bold" /><UI text="KRW" /></label>
         <div className="grid grid-cols-2 gap-2 text-sm"><div className="rounded-xl bg-ink/5 p-2"><div className="text-xs text-ink/55">{t('Current rate')}</div><b>₩ {cur}</b></div><div className="rounded-xl bg-ink/5 p-2"><div className="text-xs text-ink/55">{t('Target rate')}</div><b>₩ {tgt}</b></div></div>
         <div><div className="text-xs text-ink/55">{t('Last 7 days')}</div>
           <svg viewBox="0 0 300 80" className="w-full"><line x1="0" x2="300" y1={y(tgt)} y2={y(tgt)} stroke="#FF785F" strokeDasharray="4 3" /><polyline points={pts} fill="none" stroke="#3546D3" strokeWidth="2.5" /></svg></div>

@@ -1,7 +1,9 @@
+import UI from './i18n-view'
 import { useRef, useState } from 'react'
 import { ApiError, type AccountId, type ActualActivity, type BalanceItem, type CompletionAssessment, type FV, type HomeBackendApi, type Money, type PlanResponse } from '@/api/types'
 import { uid } from '@/api/api'
 import { Amount, Badge, Btn, Card, Err, Modal, Warn, fmt } from './kit'
+import { useApp } from './ctx'
 
 type FeeField = { id: string; label: string; account: AccountId; value: string }
 type Fields = { from: AccountId; to: AccountId; principal: string; received: string; fees: FeeField[]; at: string }
@@ -32,10 +34,11 @@ function startingFields(plan: PlanResponse, attempt?: Attempt): Fields {
   }
 }
 function Field({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
-  return <label className="block text-sm"><span className="text-ink/60">{label}</span><input disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 px-3 font-semibold" /></label>
+  const {t} = useApp()
+  return <label className="block text-sm"><span className="text-ink/60"><UI text={label} /></span><input aria-label={t(label)} disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 px-3 font-semibold" /></label>
 }
 function Value({ label, value }: { label: string; value: FV }) {
-  return <div className="flex items-start justify-between gap-3"><span className="text-ink/60">{label}</span><div className="min-w-0 text-right"><Amount v={value} /></div></div>
+  return <div className="flex items-start justify-between gap-3"><span className="text-ink/60"><UI text={label} /></span><div className="min-w-0 text-right"><Amount v={value} /></div></div>
 }
 
 export default function PlanCompletion({ api, plan, accounts, onClose, onDone }: {
@@ -94,48 +97,48 @@ export default function PlanCompletion({ api, plan, accounts, onClose, onDone }:
   }
   const a = review?.assessment, reserve = a?.reserve_check.applicability === 'applicable' ? a.reserve_check : a?.other_account_reserve_check
   return <Modal title="Did you complete this?" onClose={() => { if (!inFlight.current) onClose() }}>
-    <p className="mb-3 text-sm text-ink/60">Record activity completed elsewhere. Quote values are prefilled for review, not proof of actual payment.</p>
+    <p className="mb-3 text-sm text-ink/60"><UI text="Record activity completed elsewhere. Quote values are prefilled for review, not proof of actual payment." /></p>
     <Badge b={plan.plan.quote.badge} />
-    {attempt && <Warn>A confirmation was submitted. Keep these exact details for retries or check Node status. Closing does not undo a recorded activity.</Warn>}
+    {attempt && <Warn><UI text="A confirmation was submitted. Keep these exact details for retries or check Node status. Closing does not undo a recorded activity." /></Warn>}
     <div className="mt-3 space-y-3">
-      <label className="block text-sm">Funding account debited<select disabled={locked} value={form.from} onChange={e => {
+      <label className="block text-sm"><UI text="Funding account debited" /><select disabled={locked} value={form.from} onChange={e => {
         const from = e.target.value as AccountId
         const next = accounts.find(v => atm ? v.account_id === 'krw_cash' : v.account_id !== from && v.balance.Money.currency !== currency(from))
         edit({ from, principal: '', ...(next ? { to: next.account_id, received: '' } : {}) })
       }} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3">{accounts.filter(v => !atm || ['myr_funding', 'krw_card'].includes(v.account_id)).map(v => <option key={v.account_id} value={v.account_id}>{v.display_name} ({v.balance.Money.currency})</option>)}</select></label>
-      <label className="block text-sm">Receiving account<select disabled={locked || atm} value={form.to} onChange={e => edit({ to: e.target.value as AccountId, received: '' })} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3">{destinations.map(v => <option key={v.account_id} value={v.account_id}>{v.display_name} ({v.balance.Money.currency})</option>)}</select></label>
+      <label className="block text-sm"><UI text="Receiving account" /><select disabled={locked || atm} value={form.to} onChange={e => edit({ to: e.target.value as AccountId, received: '' })} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3">{destinations.map(v => <option key={v.account_id} value={v.account_id}>{v.display_name} ({v.balance.Money.currency})</option>)}</select></label>
       <Field label={`Actual principal (${currency(form.from)})`} value={form.principal} disabled={locked} onChange={principal => edit({ principal })} />
       <Field label={`Actual amount received (${currency(form.to)})`} value={form.received} disabled={locked} onChange={received => edit({ received })} />
       {form.fees.map((f, i) => <Card key={f.id} className="space-y-2">
         <Field label={`Fee ${i + 1} label`} value={f.label} disabled={locked} onChange={label => edit({ fees: form.fees.map(v => v.id === f.id ? { ...v, label } : v) })} />
-        <label className="block text-sm">Fee {i + 1} account<select disabled={locked} value={f.account} onChange={e => edit({ fees: form.fees.map(v => v.id === f.id ? { ...v, account: e.target.value as AccountId, value: '' } : v) })} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3">{accounts.map(v => <option key={v.account_id} value={v.account_id}>{v.display_name} ({v.balance.Money.currency})</option>)}</select></label>
+        <label className="block text-sm"><UI text="Fee " />{i + 1} <UI text=" account" /><select disabled={locked} value={f.account} onChange={e => edit({ fees: form.fees.map(v => v.id === f.id ? { ...v, account: e.target.value as AccountId, value: '' } : v) })} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3">{accounts.map(v => <option key={v.account_id} value={v.account_id}>{v.display_name} ({v.balance.Money.currency})</option>)}</select></label>
         <Field label={`Fee ${i + 1} amount (${currency(f.account)})`} value={f.value} disabled={locked} onChange={value => edit({ fees: form.fees.map(v => v.id === f.id ? { ...v, value } : v) })} />
-        <Btn kind="outline" disabled={locked} onClick={() => edit({ fees: form.fees.filter(v => v.id !== f.id) })}>Remove fee {i + 1}</Btn>
+        <Btn kind="outline" disabled={locked} onClick={() => edit({ fees: form.fees.filter(v => v.id !== f.id) })}><UI text="Remove fee " />{i + 1}</Btn>
       </Card>)}
-      <Btn kind="outline" disabled={locked || form.fees.length >= 50} onClick={() => edit({ fees: [...form.fees, { id: uid(), label: 'Actual fee', account: form.from, value: '' }] })}>Add actual fee</Btn>
+      <Btn kind="outline" disabled={locked || form.fees.length >= 50} onClick={() => edit({ fees: [...form.fees, { id: uid(), label: 'Actual fee', account: form.from, value: '' }] })}><UI text="Add actual fee" /></Btn>
       <Field label="Actual completion timestamp (ISO with timezone)" value={form.at} disabled={locked} onChange={at => edit({ at })} />
-      <Btn className="w-full" disabled={busy || Boolean(attempt)} onClick={() => void preview()}>{busy && !attempt ? 'Checking actuals…' : 'Preview completion'}</Btn>
+      <Btn className="w-full" disabled={busy || Boolean(attempt)} onClick={() => void preview()}><UI text={busy && !attempt ? 'Checking actuals…' : 'Preview completion'} /></Btn>
     </div>
     {a && <div className="mt-4 space-y-3">
-      <h4 className="font-bold">{attempt ? 'Node preview reviewed before submission' : 'Node completion preview — no posting yet'}</h4>
+      <h4 className="font-bold"><UI text={attempt ? 'Node preview reviewed before submission' : 'Node completion preview — no posting yet'} /></h4>
       <Card className="space-y-3 text-sm">{a.account_impacts.map(v => <div key={v.account_id} className="space-y-2"><b>{account(v.account_id).display_name}</b><Value label="Current balance" value={v.current_balance} /><Value label="Actual debit" value={v.total_debits} /><Value label="Actual credit" value={v.total_credits} /><Value label="Projected balance" value={v.projected_balance} /></div>)}</Card>
-      <Card className="space-y-3 text-sm"><h4 className="font-bold">Differences from saved quote (Node)</h4>
-        {([['Principal', a.differences.principal], ['Funding-account total debit', a.differences.total_debit], ['Amount received', a.differences.amount_received]] as const).map(([label, d]) => <div key={label} className="space-y-1"><b>{label}</b><Value label="Quoted" value={d.quoted} /><Value label="Actual" value={d.actual} />{d.difference ? <p>Difference: {fmt(d.difference.Money, true)} <Badge b={d.difference.badge} /></p> : <p>Currency changed; no converted difference.</p>}</div>)}
-        <p>Funding: {a.differences.funding_account.quoted} → {a.differences.funding_account.actual}</p><p>Destination: {a.differences.destination_account.quoted} → {a.differences.destination_account.actual}</p>
-        <p>Fee breakdown changed: {a.differences.fees.changed ? 'Yes' : 'No'}</p>
-        {(['quoted', 'actual'] as const).map(kind => <div key={kind}><b>{kind === 'quoted' ? 'Quoted fees' : 'Actual fees'}</b>{!a.differences.fees[kind].length && <p>No fees</p>}{a.differences.fees[kind].map((f, i) => <Value key={i} label={`${f.label} · ${f.account_id}`} value={f} />)}</div>)}
+      <Card className="space-y-3 text-sm"><h4 className="font-bold"><UI text="Differences from saved quote (Node)" /></h4>
+        {([['Principal', a.differences.principal], ['Funding-account total debit', a.differences.total_debit], ['Amount received', a.differences.amount_received]] as const).map(([label, d]) => <div key={label} className="space-y-1"><b><UI text={label} /></b><Value label="Quoted" value={d.quoted} /><Value label="Actual" value={d.actual} />{d.difference ? <p><UI text="Difference: " />{fmt(d.difference.Money, true)} <Badge b={d.difference.badge} /></p> : <p><UI text="Currency changed; no converted difference." /></p>}</div>)}
+        <p><UI text="Funding: " />{a.differences.funding_account.quoted} → {a.differences.funding_account.actual}</p><p><UI text="Destination: " />{a.differences.destination_account.quoted} → {a.differences.destination_account.actual}</p>
+        <p><UI text="Fee breakdown changed: " /><UI text={a.differences.fees.changed ? 'Yes' : 'No'} /></p>
+        {(['quoted', 'actual'] as const).map(kind => <div key={kind}><b><UI text={kind === 'quoted' ? 'Quoted fees' : 'Actual fees'} /></b>{!a.differences.fees[kind].length && <p><UI text="No fees" /></p>}{a.differences.fees[kind].map((f, i) => <Value key={i} label={`${f.label} · ${f.account_id}`} value={f} />)}</div>)}
       </Card>
-      {a.requires_reserve_acknowledgement && <Warn>Actual figures would breach the stated MYR reserve. Acknowledge this current Node warning; it cannot override insufficient funds.</Warn>}
-      {reserve?.applicability === 'applicable' && <Card className="space-y-2 text-sm"><b>MYR reserve impact (Node)</b>{reserve.total_reserve && <Value label="Stated reserve" value={reserve.total_reserve} />}{reserve.projected_balance && <Value label="Projected MYR balance" value={reserve.projected_balance} />}{reserve.projected_reserve_shortfall && <Value label="Projected reserve shortfall" value={reserve.projected_reserve_shortfall} />}</Card>}
-      {reserve?.applicability !== 'applicable' && <p className="text-xs text-ink/55">MYR reserve check is not applicable to these accounts.</p>}
-      <label className="flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={busy || Boolean(attempt)} onChange={e => setConfirmed(e.target.checked)} />I confirm these actual amounts, accounts and time describe activity completed elsewhere.</label>
-      {a.requires_reserve_acknowledgement && <label className="flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={ack} disabled={busy || Boolean(attempt)} onChange={e => setAck(e.target.checked)} />I acknowledge the current Node reserve warning.</label>}
-      <Btn className="w-full" disabled={busy || !confirmed || a.requires_reserve_acknowledgement && !ack} onClick={() => void submit()}>{busy && attempt ? 'Recording…' : attempt ? 'Retry original confirmation' : 'Confirm & Update Ledger'}</Btn>
+      {a.requires_reserve_acknowledgement && <Warn><UI text="Actual figures would breach the stated MYR reserve. Acknowledge this current Node warning; it cannot override insufficient funds." /></Warn>}
+      {reserve?.applicability === 'applicable' && <Card className="space-y-2 text-sm"><b><UI text="MYR reserve impact (Node)" /></b>{reserve.total_reserve && <Value label="Stated reserve" value={reserve.total_reserve} />}{reserve.projected_balance && <Value label="Projected MYR balance" value={reserve.projected_balance} />}{reserve.projected_reserve_shortfall && <Value label="Projected reserve shortfall" value={reserve.projected_reserve_shortfall} />}</Card>}
+      {reserve?.applicability !== 'applicable' && <p className="text-xs text-ink/55"><UI text="MYR reserve check is not applicable to these accounts." /></p>}
+      <label className="flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={busy || Boolean(attempt)} onChange={e => setConfirmed(e.target.checked)} /><UI text="I confirm these actual amounts, accounts and time describe activity completed elsewhere." /></label>
+      {a.requires_reserve_acknowledgement && <label className="flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={ack} disabled={busy || Boolean(attempt)} onChange={e => setAck(e.target.checked)} /><UI text="I acknowledge the current Node reserve warning." /></label>}
+      <Btn className="w-full" disabled={busy || !confirmed || a.requires_reserve_acknowledgement && !ack} onClick={() => void submit()}><UI text={busy && attempt ? 'Recording…' : attempt ? 'Retry original confirmation' : 'Confirm & Update Ledger'} /></Btn>
     </div>}
     <Err e={error} />
-    {attempt && <Btn kind="outline" disabled={busy} className="mt-3 w-full" onClick={() => void checkStatus()}>Check recorded status</Btn>}
-    {status && <p role="status" className="mt-3 text-sm">{status}</p>}
-    <Btn kind="outline" disabled={busy} className="mt-3 w-full" onClick={onClose}>{attempt ? 'Close and refresh Home' : 'Not Completed Yet'}</Btn>
-    <p className="mt-2 text-[11px] text-ink/50">Only explicit confirmation posts actual principal and separate fee entries. It does not execute a bank transaction.</p>
+    {attempt && <Btn kind="outline" disabled={busy} className="mt-3 w-full" onClick={() => void checkStatus()}><UI text="Check recorded status" /></Btn>}
+    {status && <p role="status" className="mt-3 text-sm"><UI text={status} /></p>}
+    <Btn kind="outline" disabled={busy} className="mt-3 w-full" onClick={onClose}><UI text={attempt ? 'Close and refresh Home' : 'Not Completed Yet'} /></Btn>
+    <p className="mt-2 text-[11px] text-ink/50"><UI text="Only explicit confirmation posts actual principal and separate fee entries. It does not execute a bank transaction." /></p>
   </Modal>
 }

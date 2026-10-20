@@ -1,3 +1,4 @@
+import UI from './i18n-view'
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, type AccountId, type CompareOption, type CompareRequest, type CompareResult, type ManualCompareApi, type ProposalPreview } from '@/api/types'
 import { Badge, Btn, Card, Err, Modal, Title, Warn, fmt } from './kit'
@@ -50,23 +51,23 @@ function PlanReview({ api, sessionId, option, attempts, onClose, onDone, onRevis
   const a = review?.preview
   const safe = a?.reserve_check?.max_safe_total_debit
   return <Modal title={!a ? 'Checking your plan…' : a.requires_reserve_acknowledgement ? 'This uses part of your reserve' : 'Review pending plan'} onClose={() => { if (!posting.current) onClose() }}>
-    {!a && !error && <p className="text-sm text-ink/60">Running the fee-aware budget check.</p>}
+    {!a && !error && <p className="text-sm text-ink/60"><UI text="Running the fee-aware budget check." /></p>}
     {a && <>
-      {a.requires_reserve_acknowledgement && <Warn>Total debit including fees takes your balance below your <b>stated reserve</b>.</Warn>}
+      {a.requires_reserve_acknowledgement && <Warn><UI text="Total debit including fees takes your balance below your " /><b><UI text="stated reserve" /></b>.</Warn>}
       <Card className="mt-3 space-y-3 text-sm">
         <p className="font-bold">{review.selection.quote.provider}</p>
-        {([['Reported MYR balance', a.current_balance], ['Stated protected reserves', a.total_reserve], ['Planned total debit (principal + fees)', a.total_debit], ['Projected balance after plan', a.projected_balance]] as const).map(([label, value]) => <div key={label} className="flex justify-between gap-3"><span>{label}</span><div className="text-right"><b>{fmt(value.Money)}</b><Badge b={value.badge} /></div></div>)}
-        {a.requires_reserve_acknowledgement && <p className="font-semibold text-amber-700">{fmt(a.projected_reserve_shortfall.Money)} below your stated reserve</p>}
+        {([['Reported MYR balance', a.current_balance], ['Stated protected reserves', a.total_reserve], ['Planned total debit (principal + fees)', a.total_debit], ['Projected balance after plan', a.projected_balance]] as const).map(([label, value]) => <div key={label} className="flex justify-between gap-3"><span><UI text={label} /></span><div className="text-right"><b>{fmt(value.Money)}</b><Badge b={value.badge} /></div></div>)}
+        {a.requires_reserve_acknowledgement && <p className="font-semibold text-amber-700">{fmt(a.projected_reserve_shortfall.Money)} <UI text=" below your stated reserve" /></p>}
       </Card>
-      <p className="mt-3 text-xs text-ink/55">Save records a pending plan. It does not reserve funds, change balances or post ledger activity.</p>
-      {a.requires_reserve_acknowledgement && <label className="mt-3 flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={acknowledged} disabled={busy} onChange={e => setAcknowledged(e.target.checked)} />I acknowledge this reserve warning for the displayed amounts.</label>}
+      <p className="mt-3 text-xs text-ink/55"><UI text="Save records a pending plan. It does not reserve funds, change balances or post ledger activity." /></p>
+      {a.requires_reserve_acknowledgement && <label className="mt-3 flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={acknowledged} disabled={busy} onChange={e => setAcknowledged(e.target.checked)} /><UI text="I acknowledge this reserve warning for the displayed amounts." /></label>}
     </>}
     <Err e={error} />
     <div className="mt-4 space-y-2">
-      {!a && Boolean(error) && <Btn className="w-full" onClick={() => { setError(null); setRefresh(r => r + 1) }}>Retry preview</Btn>}
-      {safe && safe.Money.currency === 'MYR' && safe.Money.amount_minor > 0 && a?.requires_reserve_acknowledgement && <Btn kind="outline" disabled={busy} className="w-full" onClick={() => onRevise(safe.Money.amount_minor)}>Compare revised budget ({fmt(safe.Money)})</Btn>}
-      {a && <Btn kind={a.requires_reserve_acknowledgement ? 'coral' : 'primary'} className="w-full" disabled={busy || a.requires_reserve_acknowledgement && !acknowledged} onClick={() => void save()}>{busy ? 'Saving…' : error ? 'Retry Save' : a.requires_reserve_acknowledgement ? 'Save plan anyway (override reserve)' : 'Save pending plan'}</Btn>}
-      <Btn kind="outline" className="w-full" disabled={busy} onClick={onClose}>Cancel plan</Btn>
+      {!a && Boolean(error) && <Btn className="w-full" onClick={() => { setError(null); setRefresh(r => r + 1) }}><UI text="Retry preview" /></Btn>}
+      {safe && safe.Money.currency === 'MYR' && safe.Money.amount_minor > 0 && a?.requires_reserve_acknowledgement && <Btn kind="outline" disabled={busy} className="w-full" onClick={() => onRevise(safe.Money.amount_minor)}><UI text="Compare revised budget (" />{fmt(safe.Money)})</Btn>}
+      {a && <Btn kind={a.requires_reserve_acknowledgement ? 'coral' : 'primary'} className="w-full" disabled={busy || a.requires_reserve_acknowledgement && !acknowledged} onClick={() => void save()}><UI text={busy ? 'Saving…' : error ? 'Retry Save' : a.requires_reserve_acknowledgement ? 'Save plan anyway (override reserve)' : 'Save pending plan'} /></Btn>}
+      <Btn kind="outline" className="w-full" disabled={busy} onClick={onClose}><UI text="Cancel plan" /></Btn>
     </div>
   </Modal>
 }
@@ -97,34 +98,34 @@ export default function Compare() {
   const reduce = (minor: number) => { setSaving(null); setMode('budget'); setVal((minor / 100).toFixed(2)); void load(minor) }
   return <div className="space-y-3 p-4">
     <h1 className="text-xl font-extrabold">{t('Find a better way to move money')}</h1>
-    <Title>1 · What do you want to do?</Title>
+    <Title><UI text="1 · What do you want to do?" /></Title>
     {OBJ.map(o => <button key={o.id} onClick={() => { clear(); setObj(o.id) }} className={`flex min-h-[44px] w-full items-center gap-3 rounded-2xl border bg-white p-3 text-left ${obj === o.id ? 'border-cobalt ring-1 ring-cobalt' : 'border-ink/10'}`}>
       <i className={`grid h-5 w-5 place-items-center rounded-full border-2 ${obj === o.id ? 'border-cobalt' : 'border-ink/25'}`}>{obj === o.id && <b className="h-2.5 w-2.5 rounded-full bg-cobalt" />}</i>
       <span><span className="block text-sm font-bold">{t(o.t)}</span><span className="text-xs text-ink/55">{o.s}</span></span></button>)}
-    <Title>2 · Amount</Title>
+    <Title><UI text="2 · Amount" /></Title>
     <Card>
       <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-ink/5 p-1 text-sm font-semibold">
         {(['budget', 'target'] as Mode[]).map(m => <button key={m} onClick={() => { clear(); setMode(m); setVal(m === 'budget' ? '100' : '100000') }} className={`min-h-[44px] rounded-lg ${mode === m ? 'bg-white shadow' : 'text-ink/55'}`}>{t(m === 'budget' ? 'Fixed budget' : 'Fixed target')}</button>)}</div>
-      <label className="flex items-center gap-2 text-sm">{mode === 'budget' ? 'I have RM' : 'I need ₩'}<input aria-label="Compare amount" inputMode={mode === 'budget' ? 'decimal' : 'numeric'} value={val} onChange={e => { clear(); setVal(e.target.value) }} className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-ink/15 px-3 text-lg font-bold" /></label>
-      <p className="mt-2 text-xs text-ink/55">{mode === 'budget' ? 'Ranked by most KRW received after all fees.' : 'Ranked by lowest total MYR cost including fees.'}</p>
-      <label className="mt-3 block text-sm">Funding source<select value={funding} onChange={e => { clear(); setFunding(e.target.value as AccountId) }} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3"><option value="myr_funding">MYR Funding</option><option value="krw_card">KRW Card</option><option value="krw_cash">KRW Cash</option></select></label>
-      {obj === 'atm_withdrawal' && <label className="mt-3 block text-sm">Card network<select value={network} onChange={e => { clear(); setNetwork(e.target.value) }} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3"><option value="">Select network</option>{['Visa', 'Mastercard', 'UnionPay', 'Plus', 'Unknown'].map(n => <option key={n} value={n.toLowerCase()}>{n}</option>)}</select></label>}
-      <Btn className="mt-3 w-full" disabled={busy} onClick={() => void load()}>{busy ? 'Comparing…' : 'Compare options'}</Btn>
+      <label className="flex items-center gap-2 text-sm"><UI text={mode === 'budget' ? 'I have RM' : 'I need ₩'} /><input aria-label={t('Compare amount')} inputMode={mode === 'budget' ? 'decimal' : 'numeric'} value={val} onChange={e => { clear(); setVal(e.target.value) }} className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-ink/15 px-3 text-lg font-bold" /></label>
+      <p className="mt-2 text-xs text-ink/55"><UI text={mode === 'budget' ? 'Ranked by most KRW received after all fees.' : 'Ranked by lowest total MYR cost including fees.'} /></p>
+      <label className="mt-3 block text-sm"><UI text="Funding source" /><select value={funding} onChange={e => { clear(); setFunding(e.target.value as AccountId) }} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3"><option value="myr_funding"><UI text="MYR Funding" /></option><option value="krw_card"><UI text="KRW Card" /></option><option value="krw_cash"><UI text="KRW Cash" /></option></select></label>
+      {obj === 'atm_withdrawal' && <label className="mt-3 block text-sm"><UI text="Card network" /><select value={network} onChange={e => { clear(); setNetwork(e.target.value) }} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3"><option value=""><UI text="Select network" /></option>{['Visa', 'Mastercard', 'UnionPay', 'Plus', 'Unknown'].map(n => <option key={n} value={n.toLowerCase()}>{n}</option>)}</select></label>}
+      <Btn className="mt-3 w-full" disabled={busy} onClick={() => void load()}><UI text={busy ? 'Comparing…' : 'Compare options'} /></Btn>
     </Card>
-    <Title sub="Backend ranking · Simulated seeded pricing, not live market quotes">3 · Ranked options</Title>
-    {obj === 'card' && <Warn>Card-purchase comparison and plans are unsupported by the integrated backend.</Warn>}
-    {busy && <p role="status" className="text-sm text-ink/60">Loading backend options…</p>}
+    <Title sub="Backend ranking · Simulated seeded pricing, not live market quotes"><UI text="3 · Ranked options" /></Title>
+    {obj === 'card' && <Warn><UI text="Card-purchase comparison and plans are unsupported by the integrated backend." /></Warn>}
+    {busy && <p role="status" className="text-sm text-ink/60"><UI text="Loading backend options…" /></p>}
     <Err e={error} />
-    {Boolean(error) && <Btn kind="outline" disabled={busy} onClick={() => void load()}>Retry Compare</Btn>}
-    {!result && !busy && !error && <p className="text-sm text-ink/55">Choose your inputs, then compare. No prices are calculated in this screen.</p>}
-    {result && result.status !== 'ready' && <Card><p className="text-sm">{result.reason}</p><Btn kind="outline" className="mt-3" onClick={() => void load()}>Retry Compare</Btn></Card>}
+    {Boolean(error) && <Btn kind="outline" disabled={busy} onClick={() => void load()}><UI text="Retry Compare" /></Btn>}
+    {!result && !busy && !error && <p className="text-sm text-ink/55"><UI text="Choose your inputs, then compare. No prices are calculated in this screen." /></p>}
+    {result && result.status !== 'ready' && <Card><p className="text-sm">{result.reason}</p><Btn kind="outline" className="mt-3" onClick={() => void load()}><UI text="Retry Compare" /></Btn></Card>}
     {result?.status === 'ready' && <>
       <p className="text-xs text-ink/55">{result.ranking}</p>
-      {!result.options.length && <Card>No options for these inputs. Change the amount or network and compare again.</Card>}
+      {!result.options.length && <Card><UI text="No options for these inputs. Change the amount or network and compare again." /></Card>}
       {result.options.map(o => <div key={o.snapshot_id} className="space-y-1">
         <ComparisonCard sel={o.selection} rank={o.rank} primary={mode === 'budget' ? 'net' : 'debit'} blocked={o.blocking_error ?? (!o.proposal_id ? 'Preview unavailable' : null)} onSave={() => setSaving(o)} />
-        <p className="px-2 text-xs text-ink/55">Principal: {fmt(o.selection.quote.principal)}{o.atm_info ? ` · ${o.atm_info.location_name}` : ''}</p>
-        {o.compatibility && <p className="px-2 text-xs text-ink/60">{o.compatibility.status === 'unknown' ? `Compatibility unknown: ${o.compatibility.reason}` : `${o.compatibility.card_network}: ${o.compatibility.status} in seeded data only; verify with the provider. ${o.compatibility.evidence.source}`}</p>}
+        <p className="px-2 text-xs text-ink/55"><UI text="Principal: " />{fmt(o.selection.quote.principal)}<UI text={o.atm_info ? ` · ${o.atm_info.location_name}` : ''} /></p>
+        {o.compatibility && <p className="px-2 text-xs text-ink/60"><UI text={o.compatibility.status === 'unknown' ? `Compatibility unknown: ${o.compatibility.reason}` : `${o.compatibility.card_network}: ${o.compatibility.status} in seeded data only; verify with the provider. ${o.compatibility.evidence.source}`} /></p>}
       </div>)}
     </>}
     {toast && <div role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{toast}</div>}
