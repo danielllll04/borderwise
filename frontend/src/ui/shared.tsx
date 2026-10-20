@@ -53,7 +53,7 @@ export function SaveFlow({ preview, save, onReduce, onDone, onClose }: {
       {onReduce && safe.status === 'available' && safe.amount && <Btn className="w-full" onClick={() => onReduce(safe.amount!.Money.amount_minor + (a.total_debit.Money.amount_minor - a.principal.Money.amount_minor))}><UI text="Reduce to safe amount (" />{fmt(safe.amount.Money)} <UI text=" exchange)" /></Btn>}
       {!onReduce && <p className="text-xs text-ink/55"><UI text="To change the amount, ask for a new quote — plans are never edited in place." /></p>}
       <Btn kind="outline" className="w-full" onClick={onClose}><UI text="Cancel plan" /></Btn>
-      <Btn kind="coral" className="w-full" disabled={busy} onClick={() => doSave(a)}><UI text="Save plan anyway (override reserve)" /></Btn>
+      <Btn kind="coral" className="w-full" disabled={busy} onClick={() => doSave(a)}><UI text="Save with acknowledgement" /></Btn>
     </div></Modal>
 }
 const Line = ({ k, v }: { k: string; v: FV }) => { const { t } = useApp(); return <div className="flex items-start justify-between gap-3"><span className="text-ink/60">{t(k)}</span><div className="text-right"><div className="font-bold">{fmt(v.Money)}</div><Badge b={v.badge} /></div></div> }
