@@ -1,14 +1,14 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NodeAgentCard, RiskPage } from '@/api/types'
 import { Amount, Badge, Btn, Card, Err, Warn, stamp } from './kit'
 import { useApp } from './ctx'
 
 type RiskData = Extract<NodeAgentCard, {type: 'pending_plan_risk'}>['data']
 export default function AgentRisks({data, pagination}: {data: RiskData; pagination?: Extract<NodeAgentCard, {type: 'pending_plan_risk'}>['pagination']}) {
-  const {api} = useApp(), backend = api.homeBackend
+  const {api, rev} = useApp(), backend = api.homeBackend
   const [current, setCurrent] = useState<RiskPage | null>(null), [error, setError] = useState<unknown>(null), [busy, setBusy] = useState(false)
   const inFlight = useRef(false), shown = current ?? data
-  const refresh = async (more = false) => {
+  const refresh = useCallback(async (more = false) => {
     if (!backend || inFlight.current) return
     inFlight.current = true; setBusy(true); setError(null)
     try {
@@ -16,7 +16,9 @@ export default function AgentRisks({data, pagination}: {data: RiskData; paginati
       setCurrent(more && shown.status === 'available' ? {...next, items: [...new Map([...shown.items, ...next.items].map(item => [item.plan_id, item])).values()]} : next)
     } catch (e) { setError(e) }
     finally { inFlight.current = false; setBusy(false) }
-  }
+  }, [backend, shown])
+  const previousRevision = useRef(rev)
+  useEffect(() => { if (previousRevision.current !== rev) { previousRevision.current = rev; void refresh() } }, [rev, refresh])
   return <Card className="space-y-3 text-sm"><b>Pending-plan forecasts — separate from actual budget</b><p>{shown.notice}</p>
     {!current && pagination?.status === 'restarted' && <Warn>Pagination could not be continued safely. Node restarted from the first page; the figures below are service results. ({pagination.reason})</Warn>}
     <p className="text-xs text-ink/55">{current ? 'Current Node read' : 'Historical model-selected assessment page'} · {stamp(shown.assessed_at)}</p>

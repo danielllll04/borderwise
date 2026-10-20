@@ -1,3 +1,4 @@
+import type { ReceiptCard, ReceiptEvent } from './split-types'
 // Mirrors backend src/shared/models.ts + response wrappers (docs/priority-3.md, docs/agent.md).
 export type Currency = 'MYR' | 'KRW'
 export interface Money { amount_minor: number; currency: Currency }
@@ -151,7 +152,7 @@ export type NodeAgentCard =
   | {type: 'ledger_history'; data: Page<LedgerItem>}
   | {type: 'existing_balance_alternative'; account_id: string; balance: FV; reason: string}
   | {type: 'comparison_unavailable'; status: string; reason: string}
-  | {type: 'receipt_review' | 'allocation_review' | 'receipt_workflow_unavailable' | 'shared_expense_recorded'}
+  | ReceiptCard
 export interface NodeAgentResponse {
   status: 'ok' | 'clarification_required' | 'unsupported' | 'unavailable' | 'provider_error'
   explanation: string; provider: {name: 'groq' | 'demo'; simulated: boolean}
@@ -160,16 +161,16 @@ export interface NodeAgentResponse {
 }
 export interface AgentAvailability {available: boolean; provider: 'groq' | 'demo'; simulated: boolean; authentication: string}
 export interface AgentSession {session_id: string; active_proposal_id?: string | null; agent: AgentAvailability}
-export interface AgentMessageInput {message: string; idempotency_key: string; snapshot_id?: string}
+export interface AgentMessageInput {message: string; idempotency_key: string; snapshot_id?: string; attachment_id?: string; receipt_draft?: {draft_id: string; version: number}}
 export interface AgentMessageResult {turn_id: string; session_id: string; response: NodeAgentResponse}
 export interface AgentHistoryItem {message_id: number; role: 'user' | 'assistant'; content: string; response: NodeAgentResponse | null; created_at: string}
-export interface AgentHistory {items: AgentHistoryItem[]; next_cursor: number | null; receipt_events?: unknown[]; next_receipt_cursor?: string | null}
+export interface AgentHistory {items: AgentHistoryItem[]; next_cursor: number | null; receipt_events?: ReceiptEvent[]; next_receipt_cursor?: string | null}
 export interface AgentProposalPreview {proposal_id: string; quote_id: string; selection: Selection; preview: AgentFinancialPreview}
 export interface AgentBackendApi {
   storageNamespace: string
   create(): Promise<AgentSession>
   session(id: string): Promise<AgentSession>
-  history(id: string, cursor?: number): Promise<AgentHistory>
+  history(id: string, cursor?: number, receiptCursor?: string): Promise<AgentHistory>
   message(id: string, input: AgentMessageInput): Promise<AgentMessageResult>
   preview(id: string, proposal: string): Promise<AgentProposalPreview>
   save(id: string, proposal: string, input: {frontend_action: 'save_pending_plan'; idempotency_key: string; preview_token: string; reserve_acknowledgement?: {acknowledged: true; check_token: string}}): Promise<PlanResponse>

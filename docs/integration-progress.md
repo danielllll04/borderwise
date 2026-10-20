@@ -1,6 +1,6 @@
 # Frontend integration checkpoint
 
-Status on 20 October 2026: **Compare/Home checkpoint `4195fea`, connected Agent frontend and hardened pending-risk pagination are complete for team review on `codex/frontend-compare`.** Draft PR #5 targets `backend/money-ledger-agent`; no merge is performed. Home/Compare and the explicit read-only risk refresh fallback are preserved. Next work requires a separate instruction: review this checkpoint, then choose maintenance, receipt/Split frontend adoption or translation explicitly. Do not begin those tasks here.
+Status on 20 October 2026: **Compare/Home checkpoint `4195fea` and Agent/pagination checkpoint `679b4ad` remain preserved on `codex/frontend-compare`. This frontend checkpoint adds completed Split and Agent receipt/repayment adoption to draft PR #5.** Verification results below are reused for the authorized commit/push; tests are not rerun. No merge or further feature work is performed. The observed receipt/repayment checks use disposable data only.
 
 ## Completed
 
@@ -9,7 +9,8 @@ Status on 20 October 2026: **Compare/Home checkpoint `4195fea`, connected Agent 
 - Actual completion collects principal, individually paid fees, amount received, supported owned accounts and completion timestamp. Existing Node preview returns quote differences/account impacts/reserve warnings. Only explicit confirmation with applicable acknowledgement posts actuals. Stable keys and identical-body retries preserve backend idempotency.
 - Not Completed Yet leaves pending state and financial records unchanged. Cancellation changes plan status only. Successful posting stays successful if optional refresh reads fail; Home labels cached data and provides read-only recovery.
 - Agent now creates/resumes Node sessions, loads persisted history and sends every message/starter to Node. It renders backend clarifications, balances, ranked Simulated comparisons, reserve previews, trusted proposals, plans/ledger and pending-plan assessments. Explicit preview/Save uses trusted proposal IDs; supported completion actions reuse Home's existing form. Session/action retry state is independent of history reloads, and shared Home/plans reads refresh after successful actions.
-- Existing branding/layout, Home/Compare source, shared server contracts, database migrations and dependencies are preserved. Node remains the sole financial writer. Receipt editing/uploads, Split/settlement UI and translation work remain deferred. Chat cannot save, confirm, cancel or post financial activity.
+- Split and Agent share private image upload, editable versioned receipt review, stable-ID participant/item assignments, authoritative allocation cards and explicit reviewed-bill confirmation. Split reads Node debts/history and confirms partial/full repayments with independently entered original debt clearance and actual money received. Tab-scoped exact attempts survive reloads; optional refresh failures do not undo successful posting. Source provenance remains visible, including Simulated sample OCR. No frontend allocation/FX/reserve calculations or Python financial routes are used.
+- Existing branding/layout, Home/Compare source, shared server contracts, database migrations and dependencies are preserved. Node remains the sole financial writer. Chat cannot save, confirm, cancel or post financial activity. Translation, real OCR and production authentication remain deferred.
 
 ## Evidence and handover
 
@@ -44,18 +45,46 @@ Checkpoint checks were rerun without dependency upgrades or database operations:
 | Frontend `npm run lint` | Pass (oxlint), with existing warnings in unrelated files. |
 | Frontend direct Vite production bundling | Pass; this does **not** run or replace TypeScript checking. |
 | Frontend `npm run build` (`tsc -b && vite build`) | **Fails** on six pre-existing type errors, listed below. Full frontend build does not pass. |
-| Root `npm run lint` | **Fails** with 14 unrelated errors, down from the checkpoint's 20 because the replaced Agent code had six errors; no checks/rules were disabled. |
+| Root `npm run lint` | **Fails** with 13 unrelated errors: the Agent step removed six of the original 20 and this Split replacement removed one. No checks/rules were disabled. |
 
-The six frontend errors are `src/components/ui/calendar.tsx:85` (unsupported `table` class key) and `src/components/ui/resizable.tsx:9,10,25,28,40` (removed PanelGroup/PanelResizeHandle exports). The checkpoint had 20 root lint errors; six in Agent were removed by this step, leaving 14 in `frontend/src/api/mock.ts`, `hooks/use-toast.ts`, `ui/Split.tsx`, `ui/ctx.tsx`, `ui/kit.tsx`, `ui/shared.tsx` and `frontend/tailwind.config.js`. They are not new integration regressions. Resolve these in a separate scoped maintenance change; do not hide them by disabling checks.
+The six frontend errors are `src/components/ui/calendar.tsx:85` (unsupported `table` class key) and `src/components/ui/resizable.tsx:9,10,25,28,40` (removed PanelGroup/PanelResizeHandle exports). The remaining 13 root lint errors are in `frontend/src/api/mock.ts`, `hooks/use-toast.ts`, `ui/ctx.tsx`, `ui/kit.tsx`, `ui/shared.tsx` and `frontend/tailwind.config.js`. They are not new integration regressions. Resolve these in a separate scoped maintenance change; do not hide them by disabling checks.
 
 Other limitations:
 
 - Compare pricing and network evidence are seeded **Simulated**. Unknown compatibility remains unknown; no live rates/ATM availability is claimed. The engine rejects KRW-funded pricing/source-principal requests and card purchases.
 - Home completion supports the existing exchange/ATM restrictions only. Actual money/fees are user-reported, not bank-verified. The frontend does not calculate FX, fees or reserves.
 - Ambiguous completion bodies survive modal/tab navigation in memory, but not a full page reload. After a reload read Node's recorded status before re-entering actuals; server idempotency/terminal-plan guards remain authoritative.
-- Authentication is absent; all local APIs use the seeded demo profile. Keep servers on loopback. Deployment/CORS, multi-user isolation, live bank execution, receipt/Split frontend adoption, Chinese translation and real OCR remain outside this step. OCR still returns **Simulated sample output**. Tab-scoped Agent session/action state is not production user authentication; losing browser state does not remove backend idempotency or financial ownership checks.
+- Authentication is absent; all local APIs use the seeded demo profile. Keep servers on loopback. Deployment/CORS, multi-user isolation, live bank execution, Chinese translation and real OCR remain outside this step. OCR still returns **Simulated sample output**. Tab-scoped Agent/receipt/repayment state is not production user authentication. Closing/clearing the browser tab can remove recovery metadata; Node history and idempotency remain authoritative. Do not re-enter an uncertain repayment as a new action without checking Node's history.
 - The last backend dependency audit retains three high package findings through Prisma configuration's deepmerge-ts dependency. Frontend dependency remediation is not included; unchanged dependencies are not a vulnerability-free claim. See the dated audit scope in the linked report.
 - Private `.env`/credentials, databases/sidecars, uploads, temporary checks, node_modules and build output are excluded from this checkpoint. The base repository already tracks 2765 files under a legacy Linux `.venv`; those existing team files are unchanged here. The ignore rule prevents new runtime files but cannot untrack historical ones. Removing that legacy runtime belongs in a separate repository-hygiene change.
+
+## Receipt/Split frontend: observed results (20 October 2026)
+
+`frontend/src/api/split-types.ts` mirrors existing Node wrappers, not new shared models. The API facade uses the existing same-origin configuration; image uploads send raw PNG/JPEG, never paths or public upload URLs. `ReceiptReview` is shared by Split and Agent; `Repayment` reads the authoritative debt and paginated settlement history. Existing `kit` cards, badges, formatting and modal styling are reused. No backend route, migration, dependency or translation changed.
+
+Review always refreshes the current owned draft/proposal. Corrections retain the immutable original extraction, increment the expected version and clear earlier assignments/proposals. Missing assignments render Node clarification instead of invented shares. Unsaved local differences cannot authorize an older allocation. The frontend renders Steve's calculated shares and Node's reconciliation; only explicit `confirm_reviewed_split` with both acknowledgements can post. Same-currency/current-user-payer/new-payment restrictions remain. Agent messages carry an explicitly selected draft/version, refreshed before a new turn; the visible receipt context can be cleared. Read-only starters clear that context. Receipt/allocation cards reopen the shared review, and durable committed receipt events are paginated independently from messages.
+
+Before either financial confirmation, the exact body/key is written to tab-scoped sessionStorage. Uncertain attempts lock inputs and expose only an identical-request recovery button, even if reads fail or the page reloads. Known success is stored/displayed before optional refresh; replay does not start another payment. Receipt edits/allocations have version checks rather than financial idempotency keys: after an ambiguous response, refresh the current draft and explicitly review/reallocate. A lost upload response may require a fresh upload, which has no financial effect. Original images are private server storage; browser workflow state contains review/recovery data and no credentials. Successful actions invalidate shared Home/ledger/plan reads; mounted Agent risk cards refresh through the existing read-only fallback.
+
+Actual Python, Node and Vite processes ran on alternate loopback ports with newly migrated/seeded disposable SQLite and private temporary uploads. The configured Supabase installation was never opened. Existing `.env` and local `prisma/dev.db` hashes matched the earlier preservation baseline. Temporary databases, images and service processes were cleaned up. No permanent test suite was added.
+
+| Browser scenario | Observed result |
+| --- | --- |
+| Split upload/extraction | Fictional PNG reached Steve's actual `/api/split/ocr/image`. Immutable source clearly said **Simulated**, fixed sample, no image-content interpretation. |
+| Corrections and ambiguity | Merchant correction retained original source; omitted drinks assignment returned clarification, no proposal or Python allocation request. Explicit stable-ID assignment returned KRW 15000 payer / 21000 Daniel / 14000 Tze Loon; Node reconciliation validated. |
+| Version invalidation | Another correction removed confirmation controls and invalidated the earlier proposal. A separate API attempt against it returned `RECEIPT_VERSION_STALE`. The current version was reassigned/reallocated through the UI. |
+| No financial posting during review | Whole financial-row fingerprints matched before/after extraction, edits, incomplete assignments, both allocation previews and stale rejection. |
+| Explicit bill/replay | Full KRW 50000 debit once, personal expense KRW 15000 and two linked receivables KRW 21000/14000. Deliberately dropped committed reply, browser reload and original-confirmation retry returned the original activity; whole financial fingerprint unchanged on replay. |
+| Partial repayment/replay | KRW 6000 debt clearance and actual KRW 6000 received into KRW Cash; outstanding KRW 15000. Dropped committed reply, reload and original-request retry created no second settlement. A forced read outage still displayed posting success; read-only recovery restored history. |
+| Cross-currency final repayment | Independently entered KRW 15000 cleared / MYR 48.50 received into MYR Funding. Outstanding became zero; original debt remained KRW 21000. No FX was inferred. |
+| Same-currency full repayment | KRW 14000 cleared / actual KRW 14000 received into KRW Card; the second debt became settled. Both debts/history remained readable through the Settled filter. |
+| Agent receipt cards | Actual Node responses from the explicitly **scripted demo model** rendered receipt-read and allocation-clarification cards, retained selected draft/version across turns, reopened review and displayed committed receipt history. A fresh isolated follow-up confirmed that reopening the allocation card retained all three explicitly selected stable participants and its missing-assignment questions; the financial fingerprint was unchanged and no confirmation request was sent. These runs did not call Groq and are not new real-model verification. |
+| Existing screens | Agent balance read, Home balances/ledger/current budget and pending forecasts, and Steve Visa manual Compare worked. Explicit Compare Save created one pending plan with an unchanged financial fingerprint. |
+| Final accounting boundary | Six successful confirmation requests represented four distinct bodies: one bill and three repayments. Final activity count 8 (seed 4 + bill 1 + repayments 3), ledger entries 10, settlement rows 4 including the seed, income rows unchanged at 1. Final MYR Funding 406983 sen, KRW Cash 36000, KRW Card 232000. Python receivable store stayed empty; observed calls used only OCR/allocation preview and Compare reads, never legacy financial routes. |
+
+Not newly exercised here: real-Groq receipt decisions, large-page UI pagination, every upstream failure mode, multi-browser races or production/authenticated storage. Earlier backend concurrency/adapter-failure evidence remains in [receipt-review.md](receipt-review.md) and [settlements.md](settlements.md); it is not relabelled as fresh browser evidence. Seeded Compare and OCR remain Simulated. Repayment fees/FX snapshots, other payers, existing-payment linking, production authentication and translation remain unsupported/deferred.
+
+Next task requires another instruction: review this frontend checkpoint and choose the next maintenance/integration work. The user authorized committing/pushing this completed step and updating draft PR #5 using the completed checks. No merge or additional integration is performed.
 
 ## Resume commands and configuration (PowerShell)
 
@@ -84,6 +113,9 @@ $env:PYTHONPYCACHEPREFIX = Join-Path (Get-Location) '.local/python-cache'
 ```powershell
 $env:COMPARE_PROVIDER = 'steve'
 $env:STEVE_COMPARE_BASE_URL = 'http://127.0.0.1:8000'
+$env:RECEIPT_PROVIDER = 'steve'
+# Fictional stable identities for local demo only; use the agreed server-side directory.
+$env:RECEIPT_PARTICIPANTS_JSON = '[{"participant_id":"demo-profile","display_name":"Payer"},{"participant_id":"demo-daniel","display_name":"Daniel"},{"participant_id":"demo-tze-loon","display_name":"Tze Loon"}]'
 $env:HOST = '127.0.0.1'
 $env:PORT = '3000'
 # For real Agent: the key stays in ignored .env; never print it or put it in browser variables.
@@ -115,11 +147,12 @@ npm run build
 npm run typecheck
 node node_modules/eslint/bin/eslint.js src scripts eslint.config.js frontend/src/App.tsx frontend/src/api/api.ts frontend/src/api/types.ts frontend/src/ui/Compare.tsx frontend/src/ui/Home.tsx frontend/src/ui/PlanCompletion.tsx frontend/vite.config.ts
 node node_modules/eslint/bin/eslint.js frontend/src/ui/Agent.tsx frontend/src/ui/AgentCards.tsx frontend/src/ui/AgentProposal.tsx frontend/src/ui/AgentRisks.tsx frontend/src/ui/agent-state.ts
-npm run lint  # expected current failure: 14 unrelated errors (20 at checkpoint)
+node node_modules/eslint/bin/eslint.js frontend/src/api/split-types.ts frontend/src/ui/Split.tsx frontend/src/ui/ReceiptReview.tsx frontend/src/ui/Repayment.tsx frontend/src/ui/split-state.ts
+npm run lint  # expected current failure: 13 unrelated errors (20 at checkpoint)
 Set-Location frontend
 npm run lint
 npm run build  # expected current failure: six calendar/resizable type errors
 node node_modules/vite/bin/vite.js build  # bundling only; not a full build pass
 ```
 
-For future write-path verification create a disposable database/private upload directory and override configuration only in those child processes. One-off verification servers/databases are cleaned up after checking; local ignored evidence is not required to run the app. Keep financial confirmation behind existing explicit frontend-action routes. This checkpoint is committed/pushed for draft PR review only; do not merge or begin deferred tasks.
+For future write-path verification create a disposable database/private upload directory and override configuration only in those child processes. One-off verification servers/databases are cleaned up after checking; local ignored evidence is not required to run the app. Keep financial confirmation behind existing explicit frontend-action routes. This checkpoint is prepared for draft PR review. Do not merge or begin deferred tasks.

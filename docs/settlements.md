@@ -1,5 +1,7 @@
 # Split repayments: Node authority and frontend contract
 
+Split now consumes these existing reads and explicit confirmation routes through the shared frontend API facade. See [local frontend adoption and observed browser results](integration-progress.md#receiptsplit-frontend-observed-results-20-october-2026). Independently entered original-currency clearance and actual received money remain distinct; legacy Python financial routes below are still prohibited. No settlement contract changed in frontend adoption.
+
 Implemented on `codex/steve-compare`, 20 October 2026. Node is the sole financial writer and source of outstanding debt. Steve owns allocation calculations; Python's standalone receivable store and bridge events are not financial inputs to this workflow. No database migration, dependency upgrade or shared financial model change is required.
 
 ## Read authoritative debt

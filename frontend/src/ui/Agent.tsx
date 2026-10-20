@@ -8,6 +8,8 @@ import AgentCards from './AgentCards'
 import AgentProposal from './AgentProposal'
 import PlanCompletion from './PlanCompletion'
 import { initialSession, readState, resumeState, writeState, type AgentLocalState, type ProposalState } from './agent-state'
+import ReceiptReview, { RecordedBill } from './ReceiptReview'
+import type { AllocationReviewCard, ReceiptEvent } from '@/api/split-types'
 
 const STARTERS = [
   ['Cheapest ₩100,000 cash', 'I need KRW 100000 cash from an ATM, funded by MYR Funding. Find the lowest total cost.'],
@@ -31,6 +33,8 @@ export default function Agent() {
   const [delivered, setDelivered] = useState<AgentMessageResult | null>(null), [proposal, setProposal] = useState<string | null>(null)
   const [completion, setCompletion] = useState<{plan: PlanResponse; accounts: BalanceItem[]} | null>(null)
   const [reload, setReload] = useState(0)
+  const [receipt, setReceipt] = useState<{draft?: string; proposal?: string; workflow?: string; initialAllocation?: AllocationReviewCard} | null>(null)
+  const [receiptEvents, setReceiptEvents] = useState<ReceiptEvent[]>([]), [receiptCursor, setReceiptCursor] = useState<string | null>(null)
   const end = useRef<HTMLDivElement>(null)
   const persist = (value: AgentLocalState) => {
     if (!backend) throw new Error('Agent backend unavailable.')
@@ -40,15 +44,18 @@ export default function Agent() {
   const readHistory = useCallback(async (id: string, start?: number) => {
     if (!backend) return
     const items: AgentHistoryItem[] = []
+    let events: ReceiptEvent[] = [], receiptNext: string | undefined
     let next = start
     for (let page = 0; page < 50; page++) {
       const result = await backend.history(id, next)
+      if (page === 0 && !start) { events = result.receipt_events ?? []; receiptNext = result.next_receipt_cursor ?? undefined }
       items.push(...result.items); next = result.next_cursor ?? undefined
       if (!next) break
     }
     if (!mounted.current || id !== localRef.current.session) return
     setRows(old => [...new Map([...(start ? old : []), ...items].map(item => [item.message_id, item])).values()].sort((a, b) => a.message_id - b.message_id))
     setCursor(next ?? null); setHistoryError(null); if (!next) setDelivered(null)
+    if (!start) { setReceiptEvents(events); setReceiptCursor(receiptNext ?? null) }
   }, [backend])
   useEffect(() => {
     mounted.current = true
@@ -74,10 +81,12 @@ export default function Agent() {
   const refreshHistory = () => exclusive(async () => {
     try { await readHistory(localRef.current.session) } catch (e) { setHistoryError(e) }
   })
-  const send = (message: string, snapshot?: string, original?: AgentMessageInput) => exclusive(async () => {
+  const send = (message: string, snapshot?: string, original?: AgentMessageInput, receiptRef?: AgentMessageInput['receipt_draft']) => exclusive(async () => {
     if (!backend || !session || !message.trim()) return
     if (!original && (localRef.current.pending || historyError)) throw new Error('Recover the pending message/history read before sending a new message.')
-    const input = original ?? {message: message.trim(), idempotency_key: `agent-message:${uid()}`, ...(snapshot ? {snapshot_id: snapshot} : {})}
+    let selectedReceipt = original?.receipt_draft ?? receiptRef ?? (!snapshot ? localRef.current.receipt : undefined)
+    if (!original && selectedReceipt && api.splitBackend) { const latest = await api.splitBackend.review(session.session_id, selectedReceipt.draft_id); selectedReceipt = {draft_id: latest.draft_id, version: latest.version} }
+    const input = original ?? {message: message.trim(), idempotency_key: `agent-message:${uid()}`, ...(snapshot ? {snapshot_id: snapshot} : {}), ...(selectedReceipt ? {receipt_draft: selectedReceipt} : {})}
     persist({...localRef.current, pending: input}); setText(''); setNotice(''); setRetryProvider(null)
     let result: AgentMessageResult
     try { result = await backend.message(session.session_id, input) }
@@ -91,7 +100,8 @@ export default function Agent() {
       }
     }
     setDelivered(result)
-    try { persist({...localRef.current, pending: undefined}) } catch { setNotice('Message processed. Browser retry-state cleanup failed; identical-key recovery remains safe.') }
+    const receiptCard = result.response.cards.filter(c => c.type === 'receipt_review' || c.type === 'allocation_review').at(-1)
+    try { persist({...localRef.current, pending: undefined, receipt: receiptCard ? {draft_id: receiptCard.draft_id, version: receiptCard.version} : selectedReceipt}) } catch { setNotice('Message processed. Browser retry-state cleanup failed; identical-key recovery remains safe.') }
     if (result.response.status === 'provider_error' || result.response.status === 'unavailable') setRetryProvider(input)
     try { await readHistory(session.session_id) }
     catch (e) { setHistoryError(e); setNotice('Message processed. History refresh is unavailable; retry the read, not a new message.') }
@@ -100,7 +110,7 @@ export default function Agent() {
     if (!backend) return
     const next = create ? await backend.create() : await backend.session(resume.trim())
     persist(resumeState(backend.storageNamespace, next.session_id))
-    setRows([]); setSession(next); setResume(next.session_id); setNotice(''); setDelivered(null); setRetryProvider(null)
+    setRows([]); setReceiptEvents([]); setReceiptCursor(null); setReceipt(null); setSession(next); setResume(next.session_id); setNotice(''); setDelivered(null); setRetryProvider(null)
     try { await readHistory(next.session_id) } catch (e) { setHistoryError(e) }
   })
   const saveDone = (id: string, plan: PlanResponse) => {
@@ -124,7 +134,7 @@ export default function Agent() {
   const disabled = busy || loading || Boolean(historyError) || Boolean(local.pending)
   const renderResponse = (response: NodeAgentResponse) => <MessageResponse response={response}>
     {!!response.clarification.length && <Card className="space-y-2 text-sm"><b>Details needed</b>{response.clarification.map(item => <div key={item.field}><p>{item.question}</p>{item.field === 'card_network' && <div className="mt-2 flex flex-wrap gap-2">{['Visa', 'Mastercard', 'UnionPay', 'Unknown'].map(value => <Btn key={value} kind="outline" disabled={disabled} onClick={() => void send(value)}>{value}</Btn>)}</div>}</div>)}</Card>}
-    <AgentCards cards={response.cards} proposals={local.proposals} snapshots={snapshots} resolved={local.resolved} disabled={disabled} onProposal={setProposal} onSnapshot={id => void send('Preview the selected option.', id)} onComplete={id => void openCompletion(id)} />
+    <AgentCards cards={response.cards} proposals={local.proposals} snapshots={snapshots} resolved={local.resolved} disabled={disabled} onProposal={setProposal} onSnapshot={id => void send('Preview the selected option.', id)} onComplete={id => void openCompletion(id)} onReceipt={(draft, proposal, initialAllocation) => setReceipt({draft, proposal, initialAllocation})} />
   </MessageResponse>
   if (!backend) return <div className="p-4"><Warn>The connected Agent requires the Node backend in live mode. No scripted replies or financial writes are available in mock mode.</Warn></div>
   return <div className="flex h-full flex-col">
@@ -132,6 +142,7 @@ export default function Agent() {
       <Card className="space-y-2 text-xs"><b>BorderWise Agent</b><p>Chat reads and previews only. Save and completion require explicit buttons. Quotes remain Simulated even when the model is real.</p>{session && <p>{session.agent.provider}{session.agent.simulated ? ' · Scripted demo' : ' · Server-side model'} · {session.agent.available ? 'Available' : 'Provider unavailable'}</p>}
         <label className="block">Session ID<input aria-label="Agent session ID" value={resume} disabled={busy || loading} onChange={e => setResume(e.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 px-2" /></label>
         <div className="flex flex-wrap gap-2"><Btn kind="outline" disabled={busy || loading || !resume.trim()} onClick={() => void switchSession(false)}>Resume session</Btn><Btn kind="outline" disabled={busy || loading} onClick={() => void switchSession(true)}>New conversation</Btn><Btn kind="outline" disabled={busy || loading || !session} onClick={() => void refreshHistory()}>Reload history</Btn></div>
+        <Btn kind="outline" disabled={disabled || !session || !api.splitBackend} onClick={() => setReceipt({workflow: 'agent-upload'})}>Upload / resume receipt</Btn>
       </Card>
       {loading && <p role="status">Loading session and conversation…</p>}
       <Err e={error} />{Boolean(error) && !session && <Btn onClick={() => { setLoading(true); setError(null); setReload(n => n + 1) }}>Retry session connection</Btn>}
@@ -141,13 +152,16 @@ export default function Agent() {
       {!loading && !rows.length && !historyError && session && <p className="text-sm text-ink/60">Ask about balances, reserves, pending-plan risks or supported currency/ATM options.</p>}
       {rows.map(row => <div key={row.message_id} className="space-y-2"><p className="text-[10px] text-ink/45">{stamp(row.created_at)} · {row.role === 'assistant' ? 'Historical service cards; re-preview before acting' : 'You'}</p>{row.role === 'user' ? <div className="ml-10 rounded-2xl rounded-br-md bg-cobalt p-3 text-sm text-white">{row.content}</div> : row.response ? renderResponse(row.response) : <Card>{row.content}</Card>}</div>)}
       {delivered && <div>{renderResponse(delivered.response)}</div>}
+      {!!receiptEvents.length && <div className="space-y-3"><p className="text-xs font-bold">Committed receipt history · Node</p>{receiptEvents.map(event => <div key={event.event_id}><p className="text-xs">{stamp(event.created_at)}</p><RecordedBill data={event.card.data} /></div>)}</div>}
+      {receiptCursor && <Btn disabled={busy} onClick={() => void exclusive(async () => { const page = await backend.history(localRef.current.session, undefined, receiptCursor); setReceiptEvents(old => [...new Map([...old, ...page.receipt_events ?? []].map(e => [e.event_id, e])).values()]); setReceiptCursor(page.next_receipt_cursor ?? null) })}>Load more recorded receipts</Btn>}
       {cursor && <Btn disabled={busy} onClick={() => void exclusive(async () => { try { await readHistory(local.session, cursor) } catch (e) { setHistoryError(e) } })}>Load more history</Btn>}
       {local.pending && !busy && <Card className="space-y-2 text-sm"><b>Message outcome needs recovery</b><p>The exact submitted message/key is retained. Retrying cannot create another turn for that key.</p><Btn disabled={!session} onClick={() => void send(local.pending!.message, undefined, local.pending)}>Retry original message</Btn></Card>}
-      {retryProvider && !local.pending && <Btn kind="outline" disabled={disabled} onClick={() => void send(retryProvider.message, retryProvider.snapshot_id)}>Request provider again (new turn)</Btn>}
+      {retryProvider && !local.pending && <Btn kind="outline" disabled={disabled} onClick={() => void send(retryProvider.message, retryProvider.snapshot_id, undefined, retryProvider.receipt_draft)}>Request provider again (new turn)</Btn>}
       {busy && <p role="status" className="text-xs text-ink/55">Waiting for backend…</p>}<div ref={end} />
     </div>
     <div className="border-t border-ink/10 bg-canvas p-3">
-      <div className="mb-2 flex gap-2 overflow-x-auto">{STARTERS.map(([label, message]) => <button key={label} disabled={disabled || !session} onClick={() => void send(message)} className="min-h-[44px] shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-cobalt ring-1 ring-cobalt/30 disabled:opacity-40">{label}</button>)}</div>
+      {local.receipt && <Card className="mb-2 text-xs"><p className="break-all">Selected receipt {local.receipt.draft_id} · version {local.receipt.version}. Messages review this receipt; chat never confirms it.</p><Btn kind="ghost" disabled={disabled} onClick={() => { try { persist({...localRef.current, receipt: undefined}) } catch (e) { setError(e) } }}>Clear receipt context</Btn></Card>}
+      <div className="mb-2 flex gap-2 overflow-x-auto">{STARTERS.map(([label, message]) => <button key={label} disabled={disabled || !session} onClick={() => { try { persist({...localRef.current, receipt: undefined}); void send(message) } catch (e) { setError(e) } }} className="min-h-[44px] shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-cobalt ring-1 ring-cobalt/30 disabled:opacity-40">{label}</button>)}</div>
       <form onSubmit={e => { e.preventDefault(); if (!disabled && text.trim()) void send(text) }} className="flex gap-2"><input aria-label="Agent message" maxLength={2000} value={text} disabled={disabled || !session} onChange={e => setText(e.target.value)} placeholder="Type a message…" className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-ink/15 bg-white px-3 text-sm" /><button aria-label="Send" disabled={disabled || !session || !text.trim()} className="grid h-11 w-11 place-items-center rounded-xl bg-coral text-white disabled:opacity-40"><Send size={18} /></button></form>
     </div>
     {proposal && session && <AgentProposal api={backend} session={session.session_id} id={proposal} state={local.proposals[proposal] ?? {}} update={next => updateProposal(proposal, next)} onClose={() => setProposal(null)} onDone={plan => saveDone(proposal, plan)} />}
@@ -157,5 +171,6 @@ export default function Agent() {
       try { writeState(backend.storageNamespace, next) } catch { /* Known posting success remains final. */ }
       void readHistory(next.session).catch(e => setHistoryError(e))
     }} />}
+    {receipt && session && <ReceiptReview key={`${session.session_id}:${receipt.draft ?? receipt.workflow}`} session={session.session_id} {...receipt} onClose={() => setReceipt(null)} onAgentReview={ref => { setReceipt(null); void send('Read the selected receipt review and identify anything requiring user review.', undefined, undefined, ref) }} onDone={() => { setNotice('Shared bill recorded by Node. Home, ledger and risk reads refresh separately.'); void readHistory(session.session_id).catch(e => setHistoryError(e)) }} />}
   </div>
 }

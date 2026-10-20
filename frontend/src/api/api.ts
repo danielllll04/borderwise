@@ -1,5 +1,6 @@
 import type * as T from './types'
 import { ApiError } from './types'
+import type { SplitBackendApi } from './split-types'
 
 export interface ReceiptInput { paid_from: 'MYR_BANK' | 'KRW_CARD' | 'KRW_CASH'; total: number; debts: { debtor: string; amount: number }[] }
 /** Every screen talks to this interface only. Swap implementations in createApi(). */
@@ -8,6 +9,7 @@ export interface BorderWiseApi {
   compare?: T.ManualCompareApi
   homeBackend?: T.HomeBackendApi
   agentBackend?: T.AgentBackendApi
+  splitBackend?: SplitBackendApi
   home(): Promise<T.HomeData>
   ledger(limit?: number): Promise<{ items: T.LedgerItem[]; next_cursor: string | null }>
   listPlans(status?: string): Promise<{ items: T.PlanResponse[] }>
@@ -16,7 +18,7 @@ export interface BorderWiseApi {
   cancelPlan(id: string): Promise<T.PlanResponse>
   completionPreview(id: string, actual: T.ActualActivity): Promise<T.Assessment>
   confirmPlan(id: string, actual: T.ActualActivity, key: string, ack?: { acknowledged: true; check_token: string }): Promise<unknown>
-  // Split: no backend route yet (README) – mock-backed until one exists.
+  // Legacy mock contracts. Live Split uses the authoritative splitBackend facade.
   receivables(): Promise<T.Receivable[]>
   settleReceivable(id: string, cleared: T.Money, received: T.Money, key: string): Promise<void>
   /** Confirmed receipt: books ONLY the payer's expense; friends' shares become KRW receivables (never income). */
@@ -37,23 +39,40 @@ export function liveApi(base: string): BorderWiseApi {
     if (url.username || url.password || url.search || url.hash || !(url.protocol === 'https:' || url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) throw new Error('Use a public HTTPS backend URL or loopback HTTP URL without credentials, query or fragment.')
     base = url.toString().replace(/\/$/, '')
   }
-  async function req<R>(method: string, path: string, body?: unknown): Promise<R> {
+  async function req<R>(method: string, path: string, body?: unknown, image?: File): Promise<R> {
     let res: Response
     try {
-      res = await fetch(base + path, { method, headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined, body: body !== undefined ? JSON.stringify(body) : undefined })
+      res = await fetch(base + path, { method, headers: image ? { 'Content-Type': image.type } : body !== undefined ? { 'Content-Type': 'application/json' } : undefined, body: image ?? (body !== undefined ? JSON.stringify(body) : undefined) })
     } catch { throw new ApiError('NETWORK', `Cannot reach backend at ${base}. Is it running (and is CORS enabled)?`) }
     const json = await res.json().catch(() => null)
     if (!res.ok) { const e = json?.error; throw new ApiError(e?.code ?? 'HTTP_' + res.status, e?.message ?? res.statusText, e?.details, res.status) }
     return json as R
   }
   const a = (sid: string) => `/api/agent/sessions/${sid}`
+  const receipt = (sid: string, draft: string) => `${a(encodeURIComponent(sid))}/receipts/${encodeURIComponent(draft)}`
+  const proposal = (sid: string, pid: string) => `${a(encodeURIComponent(sid))}/receipt-proposals/${encodeURIComponent(pid)}`
+  const debt = (id: string) => `/api/receivables/${encodeURIComponent(id)}`
   return {
     mode: 'live',
+    splitBackend: {
+      storageNamespace: `borderwise-split:${base || 'same-origin'}:v1`,
+      upload: (sid, image) => req('POST', `${a(encodeURIComponent(sid))}/attachments`, undefined, image),
+      extract: (sid, attachment_id) => req('POST', `${a(encodeURIComponent(sid))}/receipts`, {attachment_id}),
+      review: (sid, draft) => req('GET', receipt(sid, draft)),
+      edit: (sid, draft, input) => req('PATCH', receipt(sid, draft), input),
+      allocate: (sid, draft, input) => req('POST', `${receipt(sid, draft)}/allocations`, input),
+      proposal: (sid, pid) => req('GET', proposal(sid, pid)),
+      confirmBill: (sid, pid, input) => req('POST', `${proposal(sid, pid)}/confirm`, input),
+      debts: (status, cursor) => req('GET', `/api/receivables?status=${status}&limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+      debt: id => req('GET', debt(id)),
+      history: (id, cursor) => req('GET', `${debt(id)}/settlements?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+      repay: (id, input) => req('POST', `${debt(id)}/settlements/confirm`, input),
+    },
     agentBackend: {
       storageNamespace: `borderwise-agent:${base || 'same-origin'}:v1`,
       create: () => req('POST', '/api/agent/sessions', {}),
       session: id => req('GET', a(encodeURIComponent(id))),
-      history: (id, cursor) => req('GET', `${a(encodeURIComponent(id))}/history?limit=20${cursor ? `&cursor=${cursor}` : ''}`),
+      history: (id, cursor, receiptCursor) => req('GET', `${a(encodeURIComponent(id))}/history?limit=20${cursor ? `&cursor=${cursor}` : ''}${receiptCursor ? `&receipt_cursor=${encodeURIComponent(receiptCursor)}` : ''}`),
       message: (id, input) => req('POST', `${a(encodeURIComponent(id))}/messages`, input),
       preview: (id, proposal) => req('POST', `${a(encodeURIComponent(id))}/proposals/${encodeURIComponent(proposal)}/preview`, {}),
       save: (id, proposal, input) => req('POST', `${a(encodeURIComponent(id))}/proposals/${encodeURIComponent(proposal)}/save`, input),

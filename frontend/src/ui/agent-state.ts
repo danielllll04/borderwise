@@ -2,7 +2,7 @@ import type { AgentBackendApi, AgentMessageInput, AgentProposalPreview } from '@
 
 export type SaveAttempt = {preview_token: string; reserve_acknowledgement?: {acknowledged: true; check_token: string}}
 export type ProposalState = {attempt?: SaveAttempt; saved?: {plan: {plan_id: string}}}
-export type AgentLocalState = {session: string; pending?: AgentMessageInput; proposals: Record<string, ProposalState>; resolved: Record<string, string>}
+export type AgentLocalState = {session: string; pending?: AgentMessageInput; receipt?: {draft_id: string; version: number}; proposals: Record<string, ProposalState>; resolved: Record<string, string>}
 const memory = new Map<string, AgentLocalState>()
 const creations = new Map<string, Promise<string>>()
 export function readState(key: string): AgentLocalState {

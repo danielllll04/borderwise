@@ -5,10 +5,13 @@ import HomeSummary from './HomeSummary'
 import { AgentAssessment } from './AgentProposal'
 import type { ProposalState } from './agent-state'
 import AgentRisks from './AgentRisks'
+import { RecordedBill } from './ReceiptReview'
+import type { AllocationReviewCard } from '@/api/split-types'
 
-export default function AgentCards({cards, proposals, snapshots, resolved, disabled, onProposal, onSnapshot, onComplete}: {
+export default function AgentCards({cards, proposals, snapshots, resolved, disabled, onProposal, onSnapshot, onComplete, onReceipt}: {
   cards: NodeAgentCard[]; proposals: Record<string, ProposalState>; snapshots: Map<string, string>; resolved: Record<string, string>; disabled: boolean
   onProposal: (id: string) => void; onSnapshot: (id: string) => void; onComplete: (id: string) => void
+  onReceipt: (draft: string, proposal?: string, initialAllocation?: AllocationReviewCard) => void
 }) {
   const proposalButton = (id: string) => {
     const saved = proposals[id]?.saved
@@ -35,7 +38,11 @@ export default function AgentCards({cards, proposals, snapshots, resolved, disab
       case 'ledger_history': return <Card key={index} className="space-y-3 text-sm">{!card.data.items.length && <p>No ledger entries in this read.</p>}{card.data.items.map(item => <div key={item.entry.entry_id}><b>{item.entry.type}</b>{item.entry.lines.map((line, i) => <p key={i}>{line.account}: {fmt(line.Money, true)}</p>)}<Badge b={item.entry.badge} /></div>)}{card.data.next_cursor && <p>More ledger entries are available on Home.</p>}</Card>
       case 'existing_balance_alternative': return <Card key={index} className="space-y-2 text-sm"><b>Existing balance · {card.account_id}</b><Amount v={card.balance} /><p>{card.reason}</p></Card>
       case 'comparison_unavailable': return <Warn key={index}>{card.reason} Change the request or retry when the service is available; no fixture fallback is used.</Warn>
-      default: return <Card key={index} className="text-sm">This card needs a frontend workflow that is not connected yet. Receipt editing/uploads, Split and settlement remain unavailable here. No financial action was taken.</Card>
+      case 'receipt_review': return <Card key={index} className="space-y-2 text-sm"><b>Receipt review · historical version {card.version}</b><p>{card.reviewed.merchant} · {fmt(card.reviewed.total)}</p><Badge b={card.extracted.badge} />{card.extracted.fixture_notice && <p>{card.extracted.fixture_notice}</p>}<p>Extraction is unconfirmed. Open the current version before editing or allocating.</p><Btn disabled={disabled} onClick={() => onReceipt(card.draft_id)}>Open receipt review</Btn></Card>
+      case 'allocation_review': return <Card key={index} className="space-y-2 text-sm"><b>Allocation review · {card.review_state}</b>{card.clarification.map(q => <p key={q.field}>{q.question}</p>)}{card.allocation && <><p>Total {fmt(card.allocation.total)} · payer {fmt(card.allocation.payer_share)}</p>{card.allocation.debtor_shares.map(s => <p key={s.participant_id}>{s.participant_id}: {fmt(s.share)}</p>)}<Badge b={card.allocation.badge} /></>}<Btn disabled={disabled} onClick={() => onReceipt(card.draft_id, card.proposal_id ?? undefined, card)}>Review current allocation</Btn><p>No financial action is taken by chat.</p></Card>
+      case 'shared_expense_recorded': return <RecordedBill key={card.proposal_id} data={card.data} />
+      case 'receipt_workflow_unavailable': return <Warn key={index}>{card.code}: {card.reason} Retry receipt review when the service recovers; no financial posting occurred.</Warn>
+      default: return <Card key={index} className="text-sm">Unsupported card. No financial action was taken. Use a supported explicit review workflow.</Card>
     }
   })}</div>
 }
