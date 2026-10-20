@@ -1,37 +1,54 @@
-import { useEffect, useState } from 'react'
-import type { Receivable, Money } from '@/api/types'
-import { Badge, Btn, Card, Err, Modal, Title, Warn, fmt } from './kit'
-import { useApp } from './ctx'
+import UI from './i18n-view'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Debt } from '@/api/split-types'
 import { uid } from '@/api/api'
+import { Badge, Btn, Card, Err, Title, Warn, fmt } from './kit'
+import { useApp } from './ctx'
+import { initialSession } from './agent-state'
+import { readWorkflow, writeWorkflow } from './split-state'
+import ReceiptReview from './ReceiptReview'
+import Repayment from './Repayment'
 
 export default function Split() {
-  const { api, rev, bump, t } = useApp()
-  const [rs, setRs] = useState<Receivable[]>([]), [sel, setSel] = useState<Receivable | null>(null)
-  useEffect(() => { api.receivables().then(setRs) }, [rev, api])
-  return <div className="space-y-3 p-4">
-    <h1 className="text-xl font-extrabold">{t('Split expenses')}</h1>
-    <Warn>Receipt scan &amp; item allocation come next. Settlement below follows the final rules: debt locked in receipt currency, repayment recorded in the currency actually received.</Warn>
-    <Title>Owed to you</Title>
-    {rs.length === 0 && <p className="text-sm text-ink/55">Nothing outstanding.</p>}
-    {rs.map(r => { const rate = Number(r.snapshot.rate), eq = Math.round(r.remaining.amount_minor / rate * 100)
-      return <Card key={r.receivable_id}>
-        <div className="flex justify-between"><div className="font-bold">{r.debtor} owes</div><div className="text-lg font-extrabold">{fmt(r.remaining)}</div></div>
-        <p className="mt-1 text-xs text-ink/60">≈ {fmt({ amount_minor: eq, currency: 'MYR' })} (snapshot RM 1 = ₩ {r.snapshot.rate})</p>
-        <div className="mt-1"><Badge b={r.snapshot.badge} /></div>
-        <Btn className="mt-3 w-full" onClick={() => setSel(r)}>Mark as Settled</Btn></Card> })}
-    {sel && <Settle r={sel} onClose={() => setSel(null)} onDone={() => { setSel(null); bump() }} />}
-  </div>
-}
-function Settle({ r, onClose, onDone }: { r: Receivable; onClose: () => void; onDone: () => void }) {
-  const { api } = useApp(), [cur, setCur] = useState<'MYR' | 'KRW'>('KRW'), [amt, setAmt] = useState(String(r.remaining.amount_minor)), [err, setErr] = useState<any>(null), [key] = useState(uid)
-  const go = async () => {
-    const received: Money = { currency: cur, amount_minor: Math.round(Number(amt) * (cur === 'MYR' ? 100 : 1)) }
-    try { await api.settleReceivable(r.receivable_id, r.remaining, received, key); onDone() } catch (e) { setErr(e) }
+  const {api, rev, t} = useApp(), backend = api.splitBackend
+  const [rows, setRows] = useState<Debt[]>([]), [selected, setSelected] = useState<Debt | null>(null)
+  const [status, setStatus] = useState<'all' | 'outstanding' | 'settled'>('outstanding'), [cursor, setCursor] = useState<string | null>(null)
+  const [busy, setBusy] = useState(true), [error, setError] = useState<unknown>(null), [session, setSession] = useState(''), [workflow, setWorkflow] = useState<string | null>(null)
+  const [workflows, setWorkflows] = useState<string[]>([]), lock = useRef(false), generation = useRef(0)
+  const [sessionRetry, setSessionRetry] = useState(0)
+  const load = useCallback(async (next?: string) => {
+    if (!backend) return
+    const g = ++generation.current; setBusy(true); setError(null)
+    try { const page = await backend.debts(status, next); if (g !== generation.current) return; setRows(old => [...new Map([...(next ? old : []), ...page.items].map(r => [r.receivable.receivable_id, r])).values()]); setCursor(page.next_cursor) }
+    catch (e) { if (g === generation.current) setError(e) } finally { if (g === generation.current) setBusy(false) }
+  }, [backend, status])
+  useEffect(() => {
+    if (!backend) return
+    const g = ++generation.current
+    backend.debts(status).then(page => { if (g === generation.current) { setRows(page.items); setCursor(page.next_cursor); setError(null); setBusy(false) } }).catch(e => { if (g === generation.current) {setError(e); setBusy(false)} })
+  }, [backend, status, rev])
+  useEffect(() => {
+    let active = true
+    if (api.agentBackend && backend) void initialSession(api.agentBackend).then(id => { if (active) {setSession(id); setWorkflows(readWorkflow(`${backend.storageNamespace}:workflows:${id}`, []))} }).catch(e => { if (active) setError(e) })
+    return () => { active = false }
+  }, [api.agentBackend, backend, sessionRetry])
+  const startReceipt = () => {
+    if (!backend || !session || lock.current) return
+    lock.current = true
+    try { const id = uid(), next = [...workflows, id]; writeWorkflow(`${backend.storageNamespace}:workflows:${session}`, next); setWorkflows(next); setWorkflow(id) }
+    catch (e) { setError(e) } finally { lock.current = false }
   }
-  return <Modal title="Settle debt" onClose={onClose}>
-    <p className="text-sm text-ink/60">Debt cleared</p><p className="text-xl font-extrabold">{fmt(r.remaining)} <span className="text-sm font-medium">({r.debtor})</span></p>
-    <div className="mt-3 flex gap-2"><select value={cur} onChange={e => { const c = e.target.value as 'MYR' | 'KRW'; setCur(c); setAmt(c === 'KRW' ? String(r.remaining.amount_minor) : String((r.remaining.amount_minor / Number(r.snapshot.rate)).toFixed(2))) }} className="min-h-[44px] rounded-xl border border-ink/15 bg-white px-3 font-semibold"><option value="KRW">KRW</option><option value="MYR">MYR</option></select>
-      <input inputMode="decimal" value={amt} onChange={e => setAmt(e.target.value)} className="min-h-[44px] flex-1 rounded-xl border border-ink/15 bg-white px-3 font-bold" /></div>
-    <p className="mt-2 text-xs text-ink/55">Credited to {cur === 'MYR' ? 'MYR Funding Balance' : 'KRW Cash-on-Hand'}. This clears a receivable — it is never counted as income.</p>
-    <Err e={err} /><Btn className="mt-4 w-full" onClick={go}>Confirm settlement</Btn></Modal>
+  if (!backend) return <div className="p-4"><Warn><UI text="Split requires the connected Node backend. Financial actions are unavailable in mock mode." /></Warn></div>
+  return <div className="space-y-3 p-4"><h1 className="text-xl font-extrabold">{t('Split expenses')}</h1>
+    <Warn><UI text="Node ledger is authoritative. Original debts and actual repayments retain their own currencies. OCR currently returns Simulated sample output." /></Warn>
+    {!session && <Btn kind="outline" onClick={() => setSessionRetry(n => n + 1)}><UI text="Retry receipt session connection" /></Btn>}
+    <Card className="space-y-2"><b><UI text="Receipt review" /></b><p className="text-sm"><UI text="Upload privately, correct the sample extraction, assign items, then explicitly confirm a trusted allocation." /></p><Btn disabled={!session || busy} onClick={startReceipt}><UI text="Upload a new receipt" /></Btn>{workflows.map((id, index) => <div key={id}><Btn kind="outline" onClick={() => setWorkflow(id)}><UI text="Resume receipt review " />{index + 1}</Btn></div>)}</Card>
+    <Title><UI text="Owed to you" /></Title><label className="block text-sm"><UI text="Debt status" /><select aria-label={t('Debt status')} className="ml-2 min-h-[44px] rounded-xl border border-ink/15 bg-white px-3" value={status} onChange={e => {setBusy(true); setStatus(e.target.value as typeof status)} }><option value="outstanding"><UI text="Outstanding" /></option><option value="settled"><UI text="Settled" /></option><option value="all"><UI text="All debts" /></option></select></label>
+    {busy && <p role="status"><UI text="Loading authoritative receivables…" /></p>}<Err e={error} /><Btn kind="outline" disabled={busy} onClick={() => void load()}><UI text="Refresh receivables" /></Btn>
+    {!busy && !error && !rows.length && <Card><UI text="No debts in this view." /></Card>}
+    {rows.map(r => <Card key={r.receivable.receivable_id} className="space-y-2 text-sm"><div className="flex justify-between gap-2"><b>{r.receivable.debtor} <UI text=" owes" /></b><b>{fmt(r.outstanding_amount)}</b></div><p><UI text="Original " />{fmt(r.original_amount)} <UI text=" · cleared " />{fmt(r.cleared_amount)} · <UI text={r.status} /></p><Badge b={r.provenance.original_debt} /><p className="break-all text-xs text-ink/60"><UI text={r.participant_id ? `Participant ${r.participant_id} · split ${r.split_id}` : 'Legacy unlinked debt; no participant identity is inferred.'} /></p><Btn disabled={busy || Boolean(error)} onClick={() => setSelected(r)}><UI text={r.status === 'settled' ? 'View repayment history' : 'Record repayment / history'} /></Btn></Card>)}
+    {cursor && <Btn disabled={busy} onClick={() => void load(cursor)}><UI text="Load more receivables" /></Btn>}
+    {workflow && session && <ReceiptReview key={`${session}:${workflow}`} session={session} workflow={workflow} onClose={() => setWorkflow(null)} onDone={() => void load()} />}
+    {selected && <Repayment key={selected.receivable.receivable_id} debt={selected} onClose={() => {setSelected(null); void load()} } />}
+  </div>
 }

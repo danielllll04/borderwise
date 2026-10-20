@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Home as HomeIcon, LayoutGrid, Users, Bot, MapPin } from 'lucide-react'
 import { liveApi } from '@/api/api'
 import { mockApi } from '@/api/mock'
@@ -10,13 +10,14 @@ import Agent from '@/ui/Agent'
 import Stretch from '@/ui/Stretch'
 import { makeT, type Lang } from '@/ui/i18n'
 
-const env = (import.meta as any).env ?? {}
+const env = import.meta.env
 const BASE = env.VITE_API_BASE_URL ?? ''
 const TABS = [['agent', 'Agent', Bot, Agent], ['home', 'Home', HomeIcon, Home], ['compare', 'Compare', LayoutGrid, Compare], ['split', 'Split', Users, Split], ['stretch', 'ATM & Alerts', MapPin, Stretch]] as const
 
 export default function App() {
-  const [tab, setTab] = useState('agent'), [rev, setRev] = useState(0), [lang, setLang] = useState<Lang>('en'), useMock = env.VITE_USE_MOCK !== 'false'
+  const [tab, setTab] = useState('agent'), [rev, setRev] = useState(0), [lang, setLang] = useState<Lang>('en'), useMock = env.VITE_USE_MOCK === 'true'
   const api = useMemo(() => (useMock ? mockApi() : liveApi(BASE)), [useMock])
+  useEffect(() => { document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en' }, [lang])
   const Screen = TABS.find(t => t[0] === tab)![3]
   return <Ctx.Provider value={{ api, rev, bump: () => setRev(r => r + 1), go: setTab, lang, setLang, t: makeT(lang) }}>
     <div className="mx-auto flex h-[100dvh] max-w-[430px] flex-col bg-canvas sm:border-x sm:border-ink/10">

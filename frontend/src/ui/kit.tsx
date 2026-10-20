@@ -1,3 +1,4 @@
+import UI from './i18n-view'
 import type { ReactNode } from 'react'
 import { User, CheckCircle2, Lock, BarChart3, CircleDot, AlertTriangle, X } from 'lucide-react'
 import type { Badge as B, Money, FV } from '@/api/types'
@@ -30,12 +31,13 @@ export const Amount = ({ v, big, signed }: { v: FV; big?: boolean; signed?: bool
 export const Card = ({ children, className = '' }: { children: ReactNode; className?: string }) =>
   <div className={`rounded-2xl bg-white p-4 shadow-[0_1px_3px_rgba(25,33,58,.08)] ring-1 ring-ink/5 ${className}`}>{children}</div>
 export const Btn = ({ children, onClick, kind = 'primary', disabled, className = '' }: { children: ReactNode; onClick?: () => void; kind?: 'primary' | 'outline' | 'coral' | 'ghost'; disabled?: boolean; className?: string }) =>
-  <button disabled={disabled} onClick={onClick} className={`min-h-[44px] rounded-xl px-4 text-sm font-semibold transition disabled:opacity-40 ${{ primary: 'bg-cobalt text-white', outline: 'border border-cobalt text-cobalt bg-white', coral: 'bg-coral text-white', ghost: 'text-ink/60' }[kind]} ${className}`}>{children}</button>
-export const Title = ({ children, sub }: { children: ReactNode; sub?: string }) => <div className="mb-2 mt-5 first:mt-0"><h2 className="text-[15px] font-bold">{children}</h2>{sub && <p className="text-xs text-ink/55">{sub}</p>}</div>
+  <button disabled={disabled} onClick={onClick} className={`min-h-[44px] rounded-xl px-4 text-sm font-semibold transition disabled:opacity-40 ${{ primary: 'bg-cobalt text-white', outline: 'border border-cobalt text-cobalt bg-white', coral: 'bg-coral text-white', ghost: 'text-ink/60' }[kind]} ${className}`}><UI text={children} /></button>
+export const Title = ({ children, sub }: { children: ReactNode; sub?: string }) => <div className="mb-2 mt-5 first:mt-0"><h2 className="text-[15px] font-bold"><UI text={children} /></h2>{sub && <p className="text-xs text-ink/55"><UI text={sub} /></p>}</div>
 export const Warn = ({ children }: { children: ReactNode }) => <div className="flex gap-2 rounded-xl bg-amber-100 p-3 text-sm"><AlertTriangle className="shrink-0 text-amber-600" size={18} /><div>{children}</div></div>
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const {t} = useApp()
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 sm:items-center" onClick={onClose}>
     <div className="max-h-[92vh] w-full max-w-[430px] overflow-y-auto rounded-t-3xl bg-canvas p-5 sm:rounded-3xl" onClick={e => e.stopPropagation()}>
-      <div className="mb-3 flex items-center justify-between"><h3 className="text-lg font-extrabold">{title}</h3><button aria-label="Close" onClick={onClose} className="grid h-11 w-11 place-items-center"><X size={20} /></button></div>{children}</div></div>
+      <div className="mb-3 flex items-center justify-between"><h3 className="text-lg font-extrabold">{t(title)}</h3><button aria-label={t('Close')} onClick={onClose} className="grid h-11 w-11 place-items-center"><X size={20} /></button></div>{children}</div></div>
 }
-export const Err = ({ e }: { e: any }) => e ? <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">{e.code ? `${e.code}: ` : ''}{e.message}</p> : null
+export const Err = ({ e }: { e: any }) => e ? <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700"><UI text={e.code ? `${e.code}: ` : ''} />{e.message}</p> : null

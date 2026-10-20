@@ -3,7 +3,7 @@ import { AppError } from '../domain/errors.js';
 /** Trusted server configuration only. Never expose raw upstream bodies or connection errors. */
 export class SteveHttpClient {
   constructor(private readonly baseUrl: string | undefined, private readonly timeout: string,
-    private readonly prefix: 'COMPARE' | 'RECEIPT', private readonly maxTimeout = 10000) {}
+    private readonly prefix: 'COMPARE' | 'RECEIPT' | 'ALERT', private readonly maxTimeout = 10000) {}
 
   async request(path: string, body?: unknown, contentType = 'application/json'): Promise<unknown> {
     let base: string;

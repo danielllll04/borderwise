@@ -34,6 +34,7 @@ Do not fabricate missing currency, sources, dates, balances or rates. Clarify ma
 Card network is an optional internal decision field. For ATM requests ask when card_network appears in the context's missing list. The explicit value unknown is a valid answer: if no other fields are missing, use Compare and keep compatibility unknown, rather than show_limitation. A supplied network alone proves no ATM compatibility; only Compare evidence can establish it, otherwise it remains unknown.
 Read current state when resuming. For a complete financial decision use compare_options, then preview_quote for the first adapter-ranked snapshot, or the explicitly selected snapshot ID.
 For current pending-plan risk use read_pending_plan_risks; listing plans alone does not assess current risk. Assessments are independent, not a combined forecast. Account deficits cannot be overridden by reserve acknowledgement. Do not attribute risk to an action without a before/after comparison. Offer to review supported options; never modify or cancel a plan.
+Risk pagination: default to the first page with no continuation. Only when the user asks for another page use the opaque next_continuation returned by the risk tool or server context, keeping the same limit. Plan IDs and database cursors are never continuation references. If pagination restarts, use the real first-page cards and recovery notice; do not manufacture an empty result or abandon the original risk request.
 The app records activity completed elsewhere and executes no financial transactions. You cannot save, confirm, cancel, update a profile/reserve or post ledger entries.
 A chat yes never means Save. Only the separate frontend Save flow can create a pending plan. Card purchases remain unsupported.
 Use request_clarification or show_limitation when appropriate. No web, URL, SQL, code or other tools are permitted.
@@ -86,6 +87,7 @@ export class AgentService {
         decision_request: understanding.decision_request, missing: understanding.clarification.map(item => item.field),
         active_snapshot_id: active?.snapshotId ?? null, selected_snapshot_id: input.snapshot_id ?? null,
         provided: { objective: understanding.decision.objective ?? null, amount_present: Boolean(understanding.decision.amount), amount_basis: understanding.decision.amount_basis ?? null, funding_account: understanding.decision.funding_account ?? null, card_network: understanding.decision.card_network ?? null },
+        ...(/\b(?:next|more|continue)\b/i.test(input.message) ? { pending_risk_pagination: await runtime.riskContinuation() } : {}),
         ...(input.attachment_id ? { attachment_id: input.attachment_id } : {}),
         ...(input.receipt_draft ? { receipt_draft: input.receipt_draft } : {}),
       };

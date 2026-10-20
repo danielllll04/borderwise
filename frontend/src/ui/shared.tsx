@@ -1,3 +1,4 @@
+import UI from './i18n-view'
 import { useEffect, useState } from 'react'
 import type { Assessment, Selection, PlanResponse } from '@/api/types'
 import { Amount, Badge, Btn, Card, Err, Modal, Warn, fmt } from './kit'
@@ -19,7 +20,7 @@ export function ComparisonCard({ sel, rank, primary, onSave, blocked, saveLabel 
     {onSave && <Btn className="mt-3 w-full" onClick={onSave} disabled={!!blocked}>{t(saveLabel)}</Btn>}
   </Card>
 }
-const Row = ({ k, v }: { k: string; v: string }) => <div className="flex justify-between"><dt className="text-ink/60">{k}</dt><dd className="font-semibold">{v}</dd></div>
+const Row = ({ k, v }: { k: string; v: string }) => <div className="flex justify-between"><dt className="text-ink/60"><UI text={k} /></dt><dd className="font-semibold">{v}</dd></div>
 
 /** Modal A. Preview first; if no reserve breach, saves straight away. */
 export function SaveFlow({ preview, save, onReduce, onDone, onClose }: {
@@ -35,24 +36,24 @@ export function SaveFlow({ preview, save, onReduce, onDone, onClose }: {
     catch (e: any) { if (e.details?.preview) setA(e.details.preview); setErr(e); setBusy(false) }
   }
   useEffect(() => { preview().then(r => { setA(r); if (!r.requires_reserve_acknowledgement) doSave() }).catch(setErr) }, [])
-  if (!a) return <Modal title="Checking your plan…" onClose={onClose}><Err e={err} />{!err && <p className="text-sm text-ink/60">Running the fee-aware budget check.</p>}{err && <Btn kind="outline" className="mt-3 w-full" onClick={onClose}>Back</Btn>}</Modal>
+  if (!a) return <Modal title="Checking your plan…" onClose={onClose}><Err e={err} />{!err && <p className="text-sm text-ink/60"><UI text="Running the fee-aware budget check." /></p>}{err && <Btn kind="outline" className="mt-3 w-full" onClick={onClose}><UI text="Back" /></Btn>}</Modal>
   const short = a.projected_reserve_shortfall.Money.amount_minor
   const safe = a.safe_principal
   return <Modal title={t('This uses part of your reserve')} onClose={onClose}>
-    <Warn>Total debit including fees takes your balance below your <b>stated reserve</b>.</Warn>
+    <Warn><UI text="Total debit including fees takes your balance below your " /><b><UI text="stated reserve" /></b>.</Warn>
     <Card className="mt-3 space-y-3 text-sm">
       <Line k="Reported MYR balance" v={a.current_balance} />
       <Line k="Stated protected reserves" v={a.total_reserve} />
       <Line k="Planned total debit (principal + fees)" v={a.total_debit} />
       <Line k="Projected balance after plan" v={a.projected_balance} />
-      <p className="font-semibold text-amber-700">{fmt({ amount_minor: short, currency: 'MYR' })} below your stated reserve</p>
+      <p className="font-semibold text-amber-700">{fmt({ amount_minor: short, currency: 'MYR' })} <UI text=" below your stated reserve" /></p>
     </Card>
     <Err e={err} />
     <div className="mt-4 space-y-2">
-      {onReduce && safe.status === 'available' && safe.amount && <Btn className="w-full" onClick={() => onReduce(safe.amount!.Money.amount_minor + (a.total_debit.Money.amount_minor - a.principal.Money.amount_minor))}>Reduce to safe amount ({fmt(safe.amount.Money)} exchange)</Btn>}
-      {!onReduce && <p className="text-xs text-ink/55">To change the amount, ask for a new quote — plans are never edited in place.</p>}
-      <Btn kind="outline" className="w-full" onClick={onClose}>Cancel plan</Btn>
-      <Btn kind="coral" className="w-full" disabled={busy} onClick={() => doSave(a)}>Save plan anyway (override reserve)</Btn>
+      {onReduce && safe.status === 'available' && safe.amount && <Btn className="w-full" onClick={() => onReduce(safe.amount!.Money.amount_minor + (a.total_debit.Money.amount_minor - a.principal.Money.amount_minor))}><UI text="Reduce to safe amount (" />{fmt(safe.amount.Money)} <UI text=" exchange)" /></Btn>}
+      {!onReduce && <p className="text-xs text-ink/55"><UI text="To change the amount, ask for a new quote — plans are never edited in place." /></p>}
+      <Btn kind="outline" className="w-full" onClick={onClose}><UI text="Cancel plan" /></Btn>
+      <Btn kind="coral" className="w-full" disabled={busy} onClick={() => doSave(a)}><UI text="Save plan anyway (override reserve)" /></Btn>
     </div></Modal>
 }
 const Line = ({ k, v }: { k: string; v: { Money: any; badge: any } }) => { const { t } = useApp(); return <div className="flex items-start justify-between gap-3"><span className="text-ink/60">{t(k)}</span><div className="text-right"><div className="font-bold">{fmt(v.Money)}</div><Badge b={v.badge} /></div></div> }

@@ -1,5 +1,7 @@
+import { ZH_UI } from './i18n-ui'
 export type Lang = 'en' | 'zh'
 const ZH: Record<string, string> = {
+  ...ZH_UI,
   Home: '主页', Compare: '比较', Split: '分账', Agent: '助手', 'ATM & Alerts': 'ATM与提醒',
   'Total across all 3 accounts': '三个账户总额', 'MYR Funding Balance': '马币资金余额', 'KRW Card Balance': '韩元卡余额', 'KRW Cash-on-Hand': '韩元现金',
   'Stated budget &amp; reserves': '预算与储备金', 'Available within plan': '计划内可用', 'Stated fixed expenses reserve': '固定开销储备', 'Stated emergency reserve': '紧急储备',
@@ -20,7 +22,14 @@ const ZH: Record<string, string> = {
 }
 export const makeT = (lang: Lang) => (s: string) => {
   if (lang !== 'zh') return s
-  if (ZH[s]) return ZH[s]
+  const trimmed = s.trim(), padding = (value: string) => s.slice(0, s.indexOf(trimmed)) + value + s.slice(s.indexOf(trimmed) + trimmed.length)
+  if (ZH[trimmed]) return padding(ZH[trimmed])
+  for (const [english, chinese] of Object.entries(ZH)) {
+    if (!english.includes('{value}') || !/[A-Za-z]/.test(english.replaceAll('{value}', ''))) continue
+    const pattern = english.split('{value}').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('(.+?)')
+    const match = trimmed.match(new RegExp(`^${pattern}$`))
+    if (match) { let index = 0; return padding(chinese.replaceAll('{value}', () => match[++index]!)) }
+  }
   if (s.startsWith('Local ATM Operator Fee')) return `${ZH['Operator fee']} ${s.slice('Local ATM Operator Fee'.length).trim()}`
   return s
 }

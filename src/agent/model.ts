@@ -105,12 +105,13 @@ export class DemoAdapter implements ModelAdapter {
       }
       if (context.purchase || context.unsupported_currency) return call('show_limitation');
       if (context.selected_snapshot_id) return call('preview_quote', { snapshot_id: context.selected_snapshot_id });
-      if (/\b(?:save|confirm|cancel|yes|do it)\b/i.test(context.message) && !context.decision_request) return call('get_home');
+      if (/\b(?:save|confirm|cancel|yes|do it)\b|(?:保存|确认|取消|好的|执行)/iu.test(context.message) && !context.decision_request) return call('get_home');
       if (/\b(?:(?:pending[- ]?)?plans?.*(?:risks?|assess\w*|afford\w*|reserves?)|(?:risks?|assess\w*|afford\w*|reserves?).*plans?)\b/i.test(context.message)) return call('read_pending_plan_risks', { limit: 3 });
-      if (/\b(?:ledger|history)\b/i.test(context.message)) return call('read_ledger', { limit: 3 });
-      if (/\b(?:pending plans|list plans)\b/i.test(context.message)) return call('list_plans', { limit: 3 });
+      if (/(?:计划.*(?:风险|储备|评估)|(?:风险|储备|评估).*计划)/u.test(context.message)) return call('read_pending_plan_risks', { limit: 3 });
+      if (/\b(?:ledger|history)\b|(?:账本|交易历史|交易记录)/iu.test(context.message)) return call('read_ledger', { limit: 3 });
+      if (/\b(?:pending plans|list plans)\b|(?:待处理计划|计划列表|查看计划)/iu.test(context.message)) return call('list_plans', { limit: 3 });
       if (context.decision_request) return context.missing.length ? call('request_clarification') : call('compare_options');
-      if (/\b(?:balance|budget|reserve)\b/i.test(context.message)) return call('get_home');
+      if (/\b(?:balance|budget|reserve)\b|(?:余额|预算|储备金)/iu.test(context.message)) return call('get_home');
       return [];
     }
     const comparison = completed.find(result => result.kind === 'comparison');

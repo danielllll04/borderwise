@@ -1,5 +1,7 @@
 # Steve Compare → Node integration
 
+**Current manual frontend integration:** the subsequent [manual Compare step](manual-compare.md) adds Node `POST /api/compare/quotes`, shared adapter/validation with Agent, trusted proposals and explicit frontend preview/Save. The browser no longer calculates manual Compare fixtures. The original backend-only observations below remain a dated record; frontend receipt/settlement and Agent scripted starter flows remain outside that step.
+
 Only Compare is connected in this step. Node remains the owner of profile, balances/reserves, trusted snapshots/proposals, pending plans, explicit completion and ledger/receivable writes. Steve's FastAPI service owns quote calculations, ranking and provider/ATM data. No frontend screen or Python engine was rewritten, no Split callback was installed and no financial write tool was added to the model.
 
 Subsequent receipt-only work on the same uncommitted branch adds HTTP image transport and pure allocation preview; see [receipt integration](receipt-review.md#steve-http-integration-2026-10-20). The transport bounds are now reused from `src/integrations/steve-http.ts`. Compare's contract, authoritative ordering and simulated provenance are retained and its HTTP/Agent proposal flow passed regression verification. The later [Node settlement adapter](settlements.md) adds authoritative debt reads and explicit frontend repayment confirmation; Python legacy Split/settlement writes remain disconnected. The dated Compare results below remain evidence of the earlier run.

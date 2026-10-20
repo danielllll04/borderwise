@@ -41,11 +41,33 @@ function currencyForLabel(label: string): 'MYR' | 'KRW' {
   return /^(?:MYR|RM|马币|令吉)$/iu.test(label) ? 'MYR' : 'KRW';
 }
 
+// Normalize Chinese integer amount words only next to an explicit currency label.
+// This parses intent; all money validation/calculation remains in existing services.
+function chineseAmount(text: string): string {
+  if (/(?:百|千|万)[一二两三四五六七八九]$/u.test(text)) throw new AppError(400, 'INVALID_AMOUNT_TEXT', 'Please clarify an abbreviated Chinese amount using digits and an explicit currency');
+  const digits: Record<string, bigint> = { 零: 0n, 〇: 0n, 一: 1n, 二: 2n, 两: 2n, 三: 3n, 四: 4n, 五: 5n, 六: 6n, 七: 7n, 八: 8n, 九: 9n };
+  const units: Record<string, bigint> = { 十: 10n, 百: 100n, 千: 1000n };
+  let total = 0n, section = 0n, digit = 0n, previousDigit = false, lastUnit = 10000n;
+  for (const char of text) {
+    if (char in digits) {
+      if (previousDigit && digit !== 0n) throw new AppError(400, 'INVALID_AMOUNT_TEXT', 'Please use a single explicit currency amount in digits when Chinese number words are ambiguous');
+      digit = digits[char]!; previousDigit = true;
+    } else if (char === '万') {
+      if (total || section + digit === 0n) throw new AppError(400, 'INVALID_AMOUNT_TEXT', 'Please clarify the Chinese amount using digits and an explicit currency');
+      total = (section + digit) * 10000n; section = 0n; digit = 0n; lastUnit = 10000n; previousDigit = false;
+    } else {
+      if (units[char]! >= lastUnit) throw new AppError(400, 'INVALID_AMOUNT_TEXT', 'Please clarify the Chinese amount using digits and an explicit currency');
+      section += (digit || 1n) * units[char]!; digit = 0n; lastUnit = units[char]!; previousDigit = false;
+    }
+  }
+  return (total + section + digit).toString();
+}
+
 /** Conservative slot parser, not an open-ended financial interpreter. Ambiguity stays explicit. */
 export function understand(message: string, previous: Decision, supplied?: Decision, requiresCardNetwork: (decision: Decision) => boolean = () => false) {
   const lower = message.toLowerCase();
   const zh = isChineseText(message);
-  const unsupportedCurrency = /\b(?:usd|eur|gbp|sgd|jpy|cny|rmb|aud|thb|inr|idr|vnd|php|hkd|twd|cad|chf)\b/i.test(message);
+  const unsupportedCurrency = /\b(?:usd|eur|gbp|sgd|jpy|cny|rmb|aud|thb|inr|idr|vnd|php|hkd|twd|cad|chf)\b|(?:美元|欧元|英镑|新币|新加坡元|日元|人民币|港币|港元|台币|泰铢)/iu.test(message);
   const chineseCash = /(?:取现|提款|取钱|现金|ATM|取韩元)/iu.test(message);
   const chineseExchange = /(?:换汇|兑换|换钱|换韩元|汇率)/u.test(message);
   const cash = /\b(?:cash|withdraw(?:al)?|atm)\b/.test(lower) || chineseCash;
@@ -58,7 +80,7 @@ export function understand(message: string, previous: Decision, supplied?: Decis
     ?? ((/\b(?:unknown|not sure|do not know|don't know)\b/i.test(message) || /(?:未知|不知道|不确定)/u.test(message)) && (cash || previous.objective === 'atm_withdrawal') ? 'unknown' : undefined);
   const financial = Boolean(supplied) || Boolean(network) || cash || exchange || /\b(?:balance|reserve|ledger|budget|quote|plan|funding|sen|won|myr|krw|ringgit|rm)\b|(?:myr|krw)_|(?:余额|储备金|账本|预算|报价|计划|马币|令吉|韩元|韩币|汇率)/iu.test(message);
   const freshDecision = cash || exchange;
-  if (financial && !supplied?.amount && (/\d,\d|[-+]\s*\d|\d\s*–\s*\d/.test(message))) {
+  if (financial && !supplied?.amount && (/\d,\d|[-+]\s*[\d零〇一二两三四五六七八九十百千万]|\d\s*–\s*\d|(?:负|负数|正数)\s*[\d零〇一二两三四五六七八九十百千万]|[零〇一二两三四五六七八九十百千万]+[点半]/u.test(message))) {
     throw new AppError(400, 'INVALID_AMOUNT_TEXT', 'Use one positive plain decimal amount with an explicit supported currency; grouped, signed and ranged amounts require clarification');
   }
   // A different objective starts a new decision. Same-objective clarification retains its slots.
@@ -70,14 +92,16 @@ export function understand(message: string, previous: Decision, supplied?: Decis
   if (exchange && !cash) decision.objective = 'exchange';
   const amounts: { currency: 'MYR' | 'KRW'; text: string }[] = [];
   const currencyLabels = 'MYR|RM|KRW|won|马币|令吉|韩元|韩币|₩';
-  for (const match of message.matchAll(new RegExp(`(?:\\b)?(${currencyLabels})\\s*(\\d+(?:\\.\\d+)?)(万|千)?(?!\\d|\\.\\d)`, 'giu'))) {
+  const amountMessage = message.replace(new RegExp(`([零〇一二两三四五六七八九十百千万]+)\\s*(${currencyLabels})`, 'giu'), (_all, amount: string, currency: string) => `${chineseAmount(amount)} ${currency}`)
+    .replace(new RegExp(`(${currencyLabels})\\s*([零〇一二两三四五六七八九十百千万]+)`, 'giu'), (_all, currency: string, amount: string) => `${currency} ${chineseAmount(amount)}`);
+  for (const match of amountMessage.matchAll(new RegExp(`(?:\\b)?(${currencyLabels})\\s*(\\d+(?:\\.\\d+)?)(万|千)?(?!\\d|\\.\\d)`, 'giu'))) {
     amounts.push({ currency: currencyForLabel(match[1]!), text: scaledMajorText(match[2]!, match[3]) });
   }
-  for (const match of message.matchAll(new RegExp(`(\\d+(?:\\.\\d+)?)(万|千)?\\s*(${currencyLabels})(?![A-Za-z])`, 'giu'))) {
+  for (const match of amountMessage.matchAll(new RegExp(`(\\d+(?:\\.\\d+)?)(万|千)?\\s*(${currencyLabels})(?![A-Za-z])`, 'giu'))) {
     amounts.push({ currency: currencyForLabel(match[3]!), text: scaledMajorText(match[1]!, match[2]) });
   }
   const distinct = [...new Map(amounts.map(amount => [`${amount.currency}:${amount.text}`, amount])).values()];
-  let ambiguousAmount = distinct.length > 1 || (distinct.length > 0 && /\b(?:or|between|about|around|approximately|roughly)\b/i.test(message));
+  let ambiguousAmount = distinct.length > 1 || (distinct.length > 0 && /\b(?:or|between|about|around|approximately|roughly)\b|(?:或者|还是|大约|大概|左右|差不多|约莫)|[\d零〇一二两三四五六七八九十百千万]\s*(?:到|至|–|~)\s*[\d零〇一二两三四五六七八九十百千万]/iu.test(message));
   if (distinct.length === 1) {
     const input = distinct[0]!;
     decision.amount = parseMajorMoney(input.text, input.currency);
@@ -93,7 +117,7 @@ export function understand(message: string, previous: Decision, supplied?: Decis
       if (/\b(?:to|into|destination)\b/.test(lower) && decision.objective === 'exchange') decision.destination_account = account.id;
     }
   }
-  if (/(?:马币账户|马来西亚银行卡|银行账户)/u.test(message)) decision.funding_account = 'myr_funding';
+  if (/(?:马币账户|马币资金|马来西亚银行卡|银行账户)/u.test(message)) decision.funding_account = 'myr_funding';
   if (/(?:韩元卡)/u.test(message)) {
     if (decision.objective === 'exchange' && /(?:到|至|转入|存入)/u.test(message)) decision.destination_account = 'krw_card';
     else decision.funding_account = 'krw_card';

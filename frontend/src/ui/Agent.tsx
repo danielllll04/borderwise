@@ -1,187 +1,177 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, Send } from 'lucide-react'
-import type { AgentCard, AgentResponse, Assessment, FV, HomeData, Selection } from '@/api/types'
-import { seedCompare } from '@/api/compare'
+import UI from './i18n-view'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Send } from 'lucide-react'
+import { ApiError, type AgentHistoryItem, type AgentMessageInput, type AgentMessageResult, type AgentSession, type BalanceItem, type NodeAgentResponse, type PlanResponse } from '@/api/types'
 import { uid } from '@/api/api'
-import { Amount, Badge, Btn, Card, Err, Warn, fmt } from './kit'
-import { ComparisonCard, SaveFlow } from './shared'
+import { Btn, Card, Err, Warn, stamp } from './kit'
 import { useApp } from './ctx'
-import HomeSummary from './HomeSummary'
-
-// ---------- chat model ----------
-type Step = { label: string; ok: boolean; detail: string }
-type Block =
-  | { k: 'text'; text: string }
-  | { k: 'trace'; steps: Step[] }
-  | { k: 'chips'; q: string; opts: string[]; picked?: string }
-  | { k: 'options'; sels: Selection[] }
-  | { k: 'reserve'; sel: Selection; a: Assessment; state: 'open' | 'saved' | 'cancelled'; note?: string }
-  | { k: 'safe'; h: HomeData }
-  | { k: 'receipt'; done?: boolean }
-  | { k: 'cards'; cards: AgentCard[]; res: AgentResponse }
-type Msg = { id: string; role: 'user' | 'agent'; blocks: Block[] }
-type PaidFrom = 'MYR_BANK' | 'KRW_CARD' | 'KRW_CASH'
+import AgentCards from './AgentCards'
+import AgentProposal from './AgentProposal'
+import PlanCompletion from './PlanCompletion'
+import { initialSession, readState, resumeState, writeState, type AgentLocalState, type ProposalState } from './agent-state'
+import ReceiptReview, { RecordedBill } from './ReceiptReview'
+import type { AllocationReviewCard, ReceiptEvent } from '@/api/split-types'
 
 const STARTERS = [
-  'I need ₩100,000 cash in Seoul tomorrow. Find cheapest option and check if I can afford it.',
-  "Split this ₩50,000 receipt with Daniel and Tze Loon. I paid, but Tze Loon didn't have drinks.",
-  'Check my budget & reserves',
-]
-const CHIP_LABEL = ['Cheapest ₩100,000 cash', 'Split ₩50,000 receipt', 'Check budget & reserves']
-const NETWORKS = ['Visa', 'Mastercard', 'UnionPay']
-const RECEIPT = [
-  { name: 'Shared food', amount: 42000, who: ['You', 'Daniel', 'Tze Loon'] },
-  { name: 'Beverages', amount: 7000, who: ['Daniel'] },
-  { name: 'Small extra item', amount: 1000, who: ['You'] },
-]
-const shares = () => RECEIPT.reduce<Record<string, number>>((m, it) => { it.who.forEach(w => (m[w] = (m[w] ?? 0) + it.amount / it.who.length)); return m }, {})
-const mk = (role: Msg['role'], ...blocks: Block[]): Msg => ({ id: uid(), role, blocks })
-
-// ---------- blocks ----------
-function Trace({ steps }: { steps: Step[] }) {
-  const [open, setOpen] = useState(false)
-  return <div className="rounded-xl bg-white ring-1 ring-ink/10">
-    <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="flex min-h-[44px] w-full items-center justify-between gap-2 px-3 text-left text-xs font-semibold">
-      <span>{steps.map((s, i) => <span key={i}>{i > 0 && ' → '}<span className={s.ok ? 'text-emerald-700' : 'text-amber-600'}>{s.ok ? '✓' : '⚠'}</span> {s.label}</span>)}</span>
-      <ChevronDown size={16} className={`shrink-0 ${open ? 'rotate-180' : ''}`} /></button>
-    {open && <ul className="space-y-1 border-t border-ink/10 px-3 py-2 text-xs text-ink/70">{steps.map((s, i) => <li key={i}><b>{s.ok ? '✓' : '⚠'} {s.label}:</b> {s.detail}</li>)}</ul>}
-  </div>
+  ['Cheapest ₩100,000 cash', 'I need KRW 100000 cash from an ATM, funded by MYR Funding. Find the lowest total cost.'],
+  ['Review pending-plan risks', 'Read current pending-plan risks and reserve assessments.'],
+  ['Check budget & reserves', 'Read my current balances and budget reserves.'],
+] as const
+function messageResult(value: unknown): value is AgentMessageResult {
+  return Boolean(value && typeof value === 'object' && 'turn_id' in value && typeof value.turn_id === 'string' && 'session_id' in value && typeof value.session_id === 'string' && 'response' in value && value.response && typeof value.response === 'object' && 'cards' in value.response && Array.isArray(value.response.cards))
 }
-
-/** MaxSafeTotalDebit = CurrentReportedBalance − (FixedReserve + EmergencyReserve) */
-function SafeFormula({ balance, reserve, planned }: { balance: FV; reserve: FV; planned?: FV }) {
-  const safe = Math.max(0, balance.Money.amount_minor - reserve.Money.amount_minor)
-  const row = (k: string, v: FV) => <div className="flex items-start justify-between gap-3"><span className="text-ink/60">{k}</span><Amount v={v} /></div>
-  return <Card className="space-y-3 text-sm">
-    {row('Reported MYR balance', balance)}{row('Stated reserves (fixed + emergency)', reserve)}
-    {row('MaxSafeTotalDebit', { Money: { amount_minor: safe, currency: 'MYR' }, badge: { ...reserve.badge, source: 'Balance − (Fixed + Emergency reserve)' } })}
-    {planned && row('Planned total debit', planned)}
-  </Card>
+function MessageResponse({response, children}: {response: NodeAgentResponse; children: ReactNode}) {
+  return <div className="space-y-3"><div className="mr-6 rounded-2xl rounded-bl-md bg-white p-3 text-sm shadow-sm ring-1 ring-ink/5"><p>{response.explanation}</p><p className="mt-2 text-xs text-ink/55"><UI text={response.provider.simulated ? 'Scripted demo provider — no model call' : `Model provider: ${response.provider.name}`} /> · <UI text={response.status} /></p>{response.error_code && <p role="alert" className="mt-2 text-red-700">{response.error_code}<UI text={response.error_code === 'AGENT_RATE_LIMITED' ? ' — wait before requesting a new provider attempt.' : ''} /></p>}</div>{children}</div>
 }
-
-function ReserveCard({ b, onReduce, onCancel, onOverride }: { b: Extract<Block, { k: 'reserve' }>; onReduce: () => void; onCancel: () => void; onOverride: () => void }) {
-  const { a } = b, short = a.projected_reserve_shortfall.Money.amount_minor
-  if (b.state !== 'open') return <Card className="text-sm">{b.state === 'saved' ? '✓ ' : ''}{b.note}</Card>
-  return <div className="space-y-2"><Warn><b>This uses part of your reserve.</b> Projected balance is {fmt({ amount_minor: short, currency: 'MYR' })} below your stated reserve.</Warn>
-    <SafeFormula balance={a.current_balance} reserve={a.total_reserve} planned={a.total_debit} />
-    <Btn className="w-full" disabled={a.safe_principal.status !== 'available'} onClick={onReduce}>Reduce to Safe Amount</Btn>
-    <Btn kind="outline" className="w-full" onClick={onCancel}>Cancel Plan</Btn>
-    <Btn kind="coral" className="w-full" onClick={onOverride}>Save Plan Anyway (Override)</Btn></div>
-}
-
-function ReceiptCard({ done, onConfirm }: { done?: boolean; onConfirm: (from: PaidFrom, sh: Record<string, number>) => void }) {
-  const [from, setFrom] = useState<PaidFrom>('KRW_CARD'), sh = shares(), total = RECEIPT.reduce((s, i) => s + i.amount, 0), w = (n: number) => fmt({ amount_minor: n, currency: 'KRW' })
-  const badge = { status: done ? 'User-Confirmed' : 'Simulated', source: done ? 'Receipt confirmed by user' : 'Simulated OCR fixture (demo)', timestamp: new Date().toISOString() } as const
-  return <Card className="space-y-3 text-sm">
-    <div className="font-extrabold">Receipt review &amp; allocation</div>
-    <table className="w-full"><tbody>{RECEIPT.map(i => <tr key={i.name} className="border-b border-ink/5 align-top"><td className="py-1.5"><b>{i.name}</b><div className="text-[11px] text-ink/55">{i.who.join(', ')}{i.who.length > 1 ? ` → ${w(i.amount / i.who.length)} each` : ' only'}</div></td><td className="py-1.5 text-right font-semibold">{w(i.amount)}</td></tr>)}
-      <tr><td className="pt-2 font-extrabold">Total</td><td className="pt-2 text-right font-extrabold">{w(total)}</td></tr></tbody></table>
-    <div className="grid grid-cols-3 gap-2 text-center text-xs">{[['Your share', sh['You']], ['Daniel owes', sh['Daniel']], ['Tze Loon owes', sh['Tze Loon']]].map(([k, v]) => <div key={k as string} className="rounded-xl bg-ink/5 p-2"><div className="text-ink/55">{k}</div><b className="text-sm">{w(v as number)}</b></div>)}</div>
-    <label className="block"><span className="text-ink/60">paid_from_account</span><select disabled={done} value={from} onChange={e => setFrom(e.target.value as PaidFrom)} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 bg-white px-3 font-semibold">{['MYR_BANK', 'KRW_CARD', 'KRW_CASH'].map(x => <option key={x}>{x}</option>)}</select></label>
-    <Badge b={badge} />
-    {done ? <p className="font-semibold text-emerald-700">✓ Confirmed. Friends’ shares are tracked as KRW receivables, not income.</p> : <Btn className="w-full" onClick={() => onConfirm(from, sh)}>Confirm Extracted Receipt</Btn>}
-  </Card>
-}
-
-// ---------- screen ----------
 export default function Agent() {
-  const { api, bump, go, setLang } = useApp()
-  const [sid, setSid] = useState(''), [text, setText] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState<any>(null), [save, setSave] = useState<{ pid: string; token: string } | null>(null)
-  const [msgs, setMsgs] = useState<Msg[]>([mk('agent', { k: 'text', text: 'Hi! I can find the cheapest way to get cash, check your reserves and split receipts. Saving a plan never changes balances — only confirming completion does.' })])
+  const {api, bump, t} = useApp(), backend = api.agentBackend
+  const [local, setLocal] = useState<AgentLocalState>(() => readState(backend?.storageNamespace ?? 'agent-unavailable'))
+  const localRef = useRef(local), busyRef = useRef(false), mounted = useRef(true)
+  const [session, setSession] = useState<AgentSession | null>(null), [resume, setResume] = useState(local.session)
+  const [rows, setRows] = useState<AgentHistoryItem[]>([]), [cursor, setCursor] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false), [loading, setLoading] = useState(Boolean(backend)), [error, setError] = useState<unknown>(null), [historyError, setHistoryError] = useState<unknown>(null)
+  const [text, setText] = useState(''), [notice, setNotice] = useState(''), [retryProvider, setRetryProvider] = useState<AgentMessageInput | null>(null)
+  const [delivered, setDelivered] = useState<AgentMessageResult | null>(null), [proposal, setProposal] = useState<string | null>(null)
+  const [completion, setCompletion] = useState<{plan: PlanResponse; accounts: BalanceItem[]} | null>(null)
+  const [reload, setReload] = useState(0)
+  const [receipt, setReceipt] = useState<{draft?: string; proposal?: string; workflow?: string; initialAllocation?: AllocationReviewCard} | null>(null)
+  const [receiptEvents, setReceiptEvents] = useState<ReceiptEvent[]>([]), [receiptCursor, setReceiptCursor] = useState<string | null>(null)
   const end = useRef<HTMLDivElement>(null)
-  useEffect(() => { api.agentCreateSession().then(s => setSid(s.session_id)).catch(() => {}) }, [api])
-  useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
-  const push = (...m: Msg[]) => setMsgs(x => [...x, ...m])
-  const patch = (id: string, f: (b: Block) => Block, only?: Block['k']) => setMsgs(x => x.map(m => m.id === id ? { ...m, blocks: m.blocks.map(b => !only || b.k === only ? f(b) : b) } : m))
-  const guard = async (f: () => Promise<void>) => { setBusy(true); setErr(null); try { await f() } catch (e) { setErr(e) } setBusy(false) }
-
-  // Flow 1 — cash: asks for card network, then runs the shared compare + reserve logic.
-  const askCash = () => push(mk('agent', { k: 'text', text: 'Which card network will you use at the ATM? I need it to compare compatible ATMs.' }, { k: 'chips', q: 'network', opts: NETWORKS }))
-  const runCash = (network: string) => guard(async () => {
-    const home = await api.home(), sels = seedCompare({ objective: 'atm_withdrawal', mode: 'target', amount: 100000 }).map(o => o.selection)
-    let a: Assessment | null = null; try { a = await api.previewPlan(sels[0]) } catch (e: any) { if (e.code !== 'INSUFFICIENT_FUNDS') throw e }
-    const breach = !!a?.requires_reserve_acknowledgement, myr = home.balances.find(b => b.account_id === 'myr_funding')!.balance
-    const steps: Step[] = [
-      { label: 'Checked balances', ok: true, detail: `MYR Funding ${fmt(myr.Money)} (${myr.badge.status})` },
-      { label: 'Compared ATM options', ok: true, detail: `${sels.length} simulated ${network} ATM options, ranked by lowest total MYR debit` },
-      { label: breach ? 'Found reserve breach' : 'Reserve check passed', ok: !breach, detail: breach ? `Top option projects ${fmt(a!.projected_reserve_shortfall.Money)} below your stated reserve` : 'Top option stays above your stated reserves' }]
-    if (breach) steps.push({ label: 'Calculated safe amount', ok: true, detail: `MaxSafeTotalDebit = ${fmt(home.budget.max_safe_total_debit.Money)}` })
-    push(mk('agent', { k: 'text', text: `Here is the cheapest way to get ₩100,000 cash with ${network}. Simulated fixtures — not live quotes.` }, { k: 'trace', steps }, { k: 'options', sels }))
-  })
-  const choose = (sel: Selection) => guard(async () => {
-    const a = await api.previewPlan(sel)
-    if (!a.requires_reserve_acknowledgement) { await api.savePlan(sel, uid()); bump(); push(mk('agent', { k: 'text', text: `✓ Saved ${sel.quote.provider} to Pending Plans. Balances are unchanged until you confirm completion on Home.` })); return }
-    push(mk('agent', { k: 'reserve', sel, a, state: 'open' }))
-  })
-  const resolve = (id: string, sel: Selection, a: Assessment, how: 'reduce' | 'cancel' | 'override') => guard(async () => {
-    const set = (state: 'saved' | 'cancelled', note: string) => patch(id, b => ({ ...(b as any), state, note }), 'reserve')
-    if (how === 'cancel') return set('cancelled', 'Plan cancelled. Nothing was saved.')
-    if (how === 'override') { await api.savePlan(sel, uid(), { acknowledged: true, check_token: a.check_token }); bump(); return set('saved', 'Saved with reserve override and flagged as breached. Balances unchanged.') }
-    const maxSafe = Math.max(0, a.current_balance.Money.amount_minor - a.total_reserve.Money.amount_minor) // MaxSafeTotalDebit
-    const next = seedCompare({ objective: 'atm_withdrawal', mode: 'budget', amount: maxSafe }).find(o => o.selection.quote.provider === sel.quote.provider)!.selection
-    await api.savePlan(next, uid()); bump()
-    set('saved', `Reduced to a ${fmt(next.quote.total_debit)} total debit (₩${next.quote.net_received.amount_minor.toLocaleString()} cash) so MYR lands at your reserve. Saved to Pending Plans; balances unchanged.`)
-  })
-
-  // Flow 2 — receipt split + proactive risk alert.
-  const confirmReceipt = (id: string, from: PaidFrom, sh: Record<string, number>) => guard(async () => {
-    await api.confirmReceipt({ paid_from: from, total: 50000, debts: [{ debtor: 'Daniel', amount: sh['Daniel'] }, { debtor: 'Tze Loon', amount: sh['Tze Loon'] }] }, uid())
-    patch(id, b => ({ ...(b as any), done: true }), 'receipt'); bump()
-    const [h, p] = await Promise.all([api.home(), api.listPlans('pending')])
-    const myr = h.balances.find(b => b.account_id === 'myr_funding')!.balance.Money.amount_minor
-    const pending = p.items.reduce((s, x) => s + (x.plan.quote.total_debit.currency === 'MYR' ? x.plan.quote.total_debit.amount_minor : 0), 0)
-    const gap = h.budget.total_reserve.Money.amount_minor - (myr - pending)
-    const r: Block[] = [{ k: 'text', text: "I've recorded the ₩50,000 receipt and saved the confirmed split." }]
-    if (pending > 0 && gap > 0) {
-      r.push({ k: 'text', text: `Warning: Your saved cash plan for tomorrow will now put you ${fmt({ amount_minor: gap, currency: 'MYR' })} below your stated emergency reserve. Would you like me to review cheaper options or calculate a safer withdrawal amount?` }, { k: 'chips', q: 'followup', opts: ['Review cheaper options', 'Calculate safer amount'] })
+  const persist = (value: AgentLocalState) => {
+    if (!backend) throw new Error('Agent backend unavailable.')
+    writeState(backend.storageNamespace, value); localRef.current = value; setLocal(value)
+  }
+  const updateProposal = (id: string, next: ProposalState) => persist({...localRef.current, proposals: {...localRef.current.proposals, [id]: next}})
+  const readHistory = useCallback(async (id: string, start?: number) => {
+    if (!backend) return
+    const items: AgentHistoryItem[] = []
+    let events: ReceiptEvent[] = [], receiptNext: string | undefined
+    let next = start
+    for (let page = 0; page < 50; page++) {
+      const result = await backend.history(id, next)
+      if (page === 0 && !start) { events = result.receipt_events ?? []; receiptNext = result.next_receipt_cursor ?? undefined }
+      items.push(...result.items); next = result.next_cursor ?? undefined
+      if (!next) break
     }
-    push(mk('agent', ...r))
-  })
-
-  // Flow 3 — budget.
-  const runBudget = () => guard(async () => {
-    const h = await api.home(), safe = h.budget.max_safe_total_debit.Money
-    push(mk('agent', { k: 'text', text: 'Here are your balances and protected reserves.' }, { k: 'trace', steps: [{ label: 'Checked balances', ok: true, detail: 'Read all three accounts' }, { label: 'Calculated safe amount', ok: true, detail: `MaxSafeTotalDebit = ${fmt(safe)}` }] }, { k: 'safe', h }))
-  })
-
-  const onChip = (m: Msg, q: string, v: string) => {
-    patch(m.id, b => ({ ...(b as any), picked: v }), 'chips'); push(mk('user', { k: 'text', text: v }))
-    if (q === 'network') runCash(v)
-    else if (v === 'Review cheaper options') go('compare')
-    else runCash('your card')
+    if (!mounted.current || id !== localRef.current.session) return
+    setRows(old => [...new Map([...(start ? old : []), ...items].map(item => [item.message_id, item])).values()].sort((a, b) => a.message_id - b.message_id))
+    setCursor(next ?? null); setHistoryError(null); if (!next) setDelivered(null)
+    if (!start) { setReceiptEvents(events); setReceiptCursor(receiptNext ?? null) }
+  }, [backend])
+  useEffect(() => {
+    mounted.current = true
+    let active = true
+    if (!backend) return
+    initialSession(backend).then(async id => {
+      if (!active) return
+      const state = readState(backend.storageNamespace); localRef.current = state; setLocal(state); setResume(id)
+      const current = await backend.session(id)
+      if (!active) return
+      setSession(current)
+      try { await readHistory(id) } catch (e) { if (active) setHistoryError(e) }
+    }).catch(e => { if (active) setError(e) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false; mounted.current = false }
+  }, [backend, readHistory, reload])
+  useEffect(() => { end.current?.scrollIntoView({behavior: 'smooth'}) }, [rows, delivered, busy])
+  const exclusive = async (work: () => Promise<void>) => {
+    if (busyRef.current) return
+    busyRef.current = true; setBusy(true); setError(null)
+    try { await work() } catch (e) { setError(e) }
+    finally { busyRef.current = false; if (mounted.current) setBusy(false) }
   }
-  const send = (t: string) => {
-    if (busy) return; setText(''); push(mk('user', { k: 'text', text: t }))
-    if (/[\u4e00-\u9fa5]/.test(t)) setLang('zh')
-    if (t === STARTERS[0]) return askCash()
-    if (t === STARTERS[1]) return push(mk('agent', { k: 'text', text: 'I read the receipt (simulated OCR). Please review the allocation before I record anything.' }, { k: 'receipt' }))
-    if (t === STARTERS[2]) return runBudget()
-    guard(async () => { const { response } = await api.agentSend(sid, t, uid()); push(mk('agent', { k: 'text', text: response.explanation }, { k: 'cards', cards: response.cards, res: response })) })
-  }
-  const startSave = (pid: string) => guard(async () => { const pv = await api.agentProposalPreview(sid, pid); setSave({ pid, token: pv.check_token }) })
-
-  const render = (m: Msg, b: Block, i: number): ReactNode => {
-    switch (b.k) {
-      case 'text': return m.role === 'user' ? <span key={i}>{b.text}</span> : <div key={i} className="mr-6 rounded-2xl rounded-bl-md bg-white p-3 text-sm shadow-sm ring-1 ring-ink/5">{b.text}</div>
-      case 'trace': return <Trace key={i} steps={b.steps} />
-      case 'chips': return <div key={i} className="flex flex-wrap gap-2">{b.opts.map(o => <button key={o} disabled={!!b.picked} onClick={() => onChip(m, b.q, o)} className={`min-h-[44px] rounded-full px-4 text-sm font-semibold ring-1 ${b.picked === o ? 'bg-cobalt text-white ring-cobalt' : 'bg-white text-cobalt ring-cobalt/40'} disabled:opacity-50`}>{o}</button>)}</div>
-      case 'options': return <div key={i} className="space-y-2">{b.sels.map((s, k) => <ComparisonCard key={s.quote.quote_id} sel={s} rank={k + 1} primary="debit" onSave={() => choose(s)} />)}<p className="text-[11px] text-ink/50">Ranked by lowest total MYR debit including fees. Seeded sample data.</p></div>
-      case 'reserve': return <ReserveCard key={i} b={b} onReduce={() => resolve(m.id, b.sel, b.a, 'reduce')} onCancel={() => resolve(m.id, b.sel, b.a, 'cancel')} onOverride={() => resolve(m.id, b.sel, b.a, 'override')} />
-      case 'safe': return <div key={i} className="space-y-2"><HomeSummary h={b.h} /><SafeFormula balance={b.h.balances.find(x => x.account_id === 'myr_funding')!.balance} reserve={b.h.budget.total_reserve} /></div>
-      case 'receipt': return <ReceiptCard key={i} done={b.done} onConfirm={(f, sh) => confirmReceipt(m.id, f, sh)} />
-      case 'cards': return <div key={i} className="space-y-2">{b.cards.map((c, k) => c.type === 'balance_summary' ? <HomeSummary key={k} h={c.data} /> : c.type === 'quote_comparison' ? <div key={k} className="space-y-2">{c.options.map(o => <ComparisonCard key={o.snapshot_id} sel={o.selection} rank={o.rank} primary={o.selection.quote.objective === 'atm_withdrawal' ? 'debit' : 'net'} blocked={o.blocking_error} onSave={() => startSave(o.snapshot_id)} />)}</div> : c.type === 'comparison_unavailable' ? <Card key={k} className="text-sm">{c.reason}</Card> : null)}</div>
+  const refreshHistory = () => exclusive(async () => {
+    try { await readHistory(localRef.current.session) } catch (e) { setHistoryError(e) }
+  })
+  const send = (message: string, snapshot?: string, original?: AgentMessageInput, receiptRef?: AgentMessageInput['receipt_draft']) => exclusive(async () => {
+    if (!backend || !session || !message.trim()) return
+    if (!original && (localRef.current.pending || historyError)) throw new Error('Recover the pending message/history read before sending a new message.')
+    let selectedReceipt = original?.receipt_draft ?? receiptRef ?? (!snapshot ? localRef.current.receipt : undefined)
+    if (!original && selectedReceipt && api.splitBackend) { const latest = await api.splitBackend.review(session.session_id, selectedReceipt.draft_id); selectedReceipt = {draft_id: latest.draft_id, version: latest.version} }
+    const input = original ?? {message: message.trim(), idempotency_key: `agent-message:${uid()}`, ...(snapshot ? {snapshot_id: snapshot} : {}), ...(selectedReceipt ? {receipt_draft: selectedReceipt} : {})}
+    persist({...localRef.current, pending: input}); setText(''); setNotice(''); setRetryProvider(null)
+    let result: AgentMessageResult
+    try { result = await backend.message(session.session_id, input) }
+    catch (e) {
+      if (e instanceof ApiError && messageResult(e.details)) result = e.details
+      else {
+        if (e instanceof ApiError && (e.status === 400 || e.status === 422 || ['AGENT_SESSION_NOT_FOUND', 'QUOTE_SNAPSHOT_NOT_FOUND'].includes(e.code))) {
+          persist({...localRef.current, pending: undefined}); setText(input.message)
+        }
+        throw e
+      }
     }
+    setDelivered(result)
+    const receiptCard = result.response.cards.filter(c => c.type === 'receipt_review' || c.type === 'allocation_review').at(-1)
+    try { persist({...localRef.current, pending: undefined, receipt: receiptCard ? {draft_id: receiptCard.draft_id, version: receiptCard.version} : selectedReceipt}) } catch { setNotice('Message processed. Browser retry-state cleanup failed; identical-key recovery remains safe.') }
+    if (result.response.status === 'provider_error' || result.response.status === 'unavailable') setRetryProvider(input)
+    try { await readHistory(session.session_id) }
+    catch (e) { setHistoryError(e); setNotice('Message processed. History refresh is unavailable; retry the read, not a new message.') }
+  })
+  const switchSession = (create: boolean) => exclusive(async () => {
+    if (!backend) return
+    const next = create ? await backend.create() : await backend.session(resume.trim())
+    persist(resumeState(backend.storageNamespace, next.session_id))
+    setRows([]); setReceiptEvents([]); setReceiptCursor(null); setReceipt(null); setSession(next); setResume(next.session_id); setNotice(''); setDelivered(null); setRetryProvider(null)
+    try { await readHistory(next.session_id) } catch (e) { setHistoryError(e) }
+  })
+  const saveDone = (id: string, plan: PlanResponse) => {
+    const next = {...localRef.current, proposals: {...localRef.current.proposals, [id]: {saved: {plan: {plan_id: plan.plan.plan_id}}}}}
+    localRef.current = next; setLocal(next); setProposal(null); setNotice('Pending plan saved successfully. Balances are unchanged; Home reads refresh separately.'); bump()
+    try { writeState(backend!.storageNamespace, next) } catch { setNotice('Pending plan saved successfully. Browser state persistence failed; recover with the same proposal/key if needed. Do not start another Save.') }
+    void readHistory(next.session).catch(e => setHistoryError(e))
   }
+  const openCompletion = (id: string) => exclusive(async () => {
+    if (!api.homeBackend) throw new Error('Home completion service unavailable.')
+    const plan = await api.homeBackend.readPlan(id)
+    if (plan.plan.status !== 'pending') { persist({...localRef.current, resolved: {...localRef.current.resolved, [id]: plan.plan.status}}); bump(); setNotice(`Node reports this plan ${plan.plan.status}; no further posting is needed.`); return }
+    const home = await api.homeBackend.summary()
+    if (!['exchange', 'atm_withdrawal'].includes(plan.plan.quote.objective)) throw new Error('Completion is unsupported for this plan objective.')
+    if (!home.balances.some(account => account.account_id === plan.plan.quote.funding_source) || !home.balances.some(account => account.account_id === plan.context.destination_account)) throw new Error('An owned source/destination account is unavailable. Refresh Home before reviewing completion.')
+    setCompletion({plan, accounts: home.balances})
+  })
+  const allCards = rows.flatMap(row => row.response?.cards ?? [])
+  if (delivered) allCards.push(...delivered.response.cards)
+  const snapshots = new Map(allCards.flatMap(card => card.type === 'proposed_plan' ? [[card.snapshot_id, card.proposal_id] as const] : []))
+  const disabled = busy || loading || Boolean(historyError) || Boolean(local.pending)
+  const renderResponse = (response: NodeAgentResponse) => <MessageResponse response={response}>
+    {!!response.clarification.length && <Card className="space-y-2 text-sm"><b><UI text="Details needed" /></b>{response.clarification.map(item => <div key={item.field}><p>{item.question}</p>{item.field === 'card_network' && <div className="mt-2 flex flex-wrap gap-2">{['Visa', 'Mastercard', 'UnionPay', 'Unknown'].map(value => <Btn key={value} kind="outline" disabled={disabled} onClick={() => void send(value)}>{value}</Btn>)}</div>}</div>)}</Card>}
+    <AgentCards cards={response.cards} proposals={local.proposals} snapshots={snapshots} resolved={local.resolved} disabled={disabled} onProposal={setProposal} onSnapshot={id => void send(t('Preview the selected option.'), id)} onComplete={id => void openCompletion(id)} onReceipt={(draft, proposal, initialAllocation) => setReceipt({draft, proposal, initialAllocation})} />
+  </MessageResponse>
+  if (!backend) return <div className="p-4"><Warn><UI text="The connected Agent requires the Node backend in live mode. No scripted replies or financial writes are available in mock mode." /></Warn></div>
   return <div className="flex h-full flex-col">
     <div className="flex-1 space-y-3 overflow-y-auto p-4">
-      {msgs.map(m => <div key={m.id} className={m.role === 'user' ? 'ml-10 rounded-2xl rounded-br-md bg-cobalt p-3 text-sm text-white' : 'space-y-2'}>{m.blocks.map((b, i) => render(m, b, i))}</div>)}
-      <Err e={err} />{busy && <p className="text-xs text-ink/50">Working…</p>}<div ref={end} />
+      <Card className="space-y-2 text-xs"><b><UI text="BorderWise Agent" /></b><p><UI text="Chat reads and previews only. Save and completion require explicit buttons. Quotes remain Simulated even when the model is real." /></p>{session && <p>{session.agent.provider}<UI text={session.agent.simulated ? ' · Scripted demo' : ' · Server-side model'} /> · <UI text={session.agent.available ? 'Available' : 'Provider unavailable'} /></p>}
+        <label className="block"><UI text="Session ID" /><input aria-label={t('Agent session ID')} value={resume} disabled={busy || loading} onChange={e => setResume(e.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-ink/15 px-2" /></label>
+        <div className="flex flex-wrap gap-2"><Btn kind="outline" disabled={busy || loading || !resume.trim()} onClick={() => void switchSession(false)}><UI text="Resume session" /></Btn><Btn kind="outline" disabled={busy || loading} onClick={() => void switchSession(true)}><UI text="New conversation" /></Btn><Btn kind="outline" disabled={busy || loading || !session} onClick={() => void refreshHistory()}><UI text="Reload history" /></Btn></div>
+        <Btn kind="outline" disabled={disabled || !session || !api.splitBackend} onClick={() => setReceipt({workflow: 'agent-upload'})}><UI text="Upload / resume receipt" /></Btn>
+      </Card>
+      {loading && <p role="status"><UI text="Loading session and conversation…" /></p>}
+      <Err e={error} />{Boolean(error) && !session && <Btn onClick={() => { setLoading(true); setError(null); setReload(n => n + 1) }}><UI text="Retry session connection" /></Btn>}
+      {notice && <div role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><UI text={notice} /></div>}
+      {Object.entries(local.proposals).filter(([, state]) => state.attempt && !state.saved).map(([id]) => <Card key={id} className="space-y-2 text-sm"><b><UI text="Submitted Save needs recovery" /></b><p className="break-all"><UI text="Trusted proposal " />{id}<UI text=". Retry the original Save, even if history is unavailable." /></p><Btn disabled={busy || loading || !session} onClick={() => setProposal(id)}><UI text="Recover submitted Save" /></Btn></Card>)}
+      {Boolean(historyError) && <><Warn><UI text="History read unavailable. Previous cards are historical snapshots; recover the read before starting a new action." /></Warn><Err e={historyError} /><Btn disabled={busy} onClick={() => void refreshHistory()}><UI text="Retry history read" /></Btn></>}
+      {!loading && !rows.length && !historyError && session && <p className="text-sm text-ink/60"><UI text="Ask about balances, reserves, pending-plan risks or supported currency/ATM options." /></p>}
+      {rows.map(row => <div key={row.message_id} className="space-y-2"><p className="text-[10px] text-ink/45">{stamp(row.created_at)} · <UI text={row.role === 'assistant' ? 'Historical service cards; re-preview before acting' : 'You'} /></p>{row.role === 'user' ? <div className="ml-10 rounded-2xl rounded-br-md bg-cobalt p-3 text-sm text-white">{row.content}</div> : row.response ? renderResponse(row.response) : <Card>{row.content}</Card>}</div>)}
+      {delivered && <div>{renderResponse(delivered.response)}</div>}
+      {!!receiptEvents.length && <div className="space-y-3"><p className="text-xs font-bold"><UI text="Committed receipt history · Node" /></p>{receiptEvents.map(event => <div key={event.event_id}><p className="text-xs">{stamp(event.created_at)}</p><RecordedBill data={event.card.data} /></div>)}</div>}
+      {receiptCursor && <Btn disabled={busy} onClick={() => void exclusive(async () => { const page = await backend.history(localRef.current.session, undefined, receiptCursor); setReceiptEvents(old => [...new Map([...old, ...page.receipt_events ?? []].map(e => [e.event_id, e])).values()]); setReceiptCursor(page.next_receipt_cursor ?? null) })}><UI text="Load more recorded receipts" /></Btn>}
+      {cursor && <Btn disabled={busy} onClick={() => void exclusive(async () => { try { await readHistory(local.session, cursor) } catch (e) { setHistoryError(e) } })}><UI text="Load more history" /></Btn>}
+      {local.pending && !busy && <Card className="space-y-2 text-sm"><b><UI text="Message outcome needs recovery" /></b><p><UI text="The exact submitted message/key is retained. Retrying cannot create another turn for that key." /></p><Btn disabled={!session} onClick={() => void send(local.pending!.message, undefined, local.pending)}><UI text="Retry original message" /></Btn></Card>}
+      {retryProvider && !local.pending && <Btn kind="outline" disabled={disabled} onClick={() => void send(retryProvider.message, retryProvider.snapshot_id, undefined, retryProvider.receipt_draft)}><UI text="Request provider again (new turn)" /></Btn>}
+      {busy && <p role="status" className="text-xs text-ink/55"><UI text="Waiting for backend…" /></p>}<div ref={end} />
     </div>
     <div className="border-t border-ink/10 bg-canvas p-3">
-      <div className="mb-2 flex gap-2 overflow-x-auto">{STARTERS.map((s, i) => <button key={s} onClick={() => send(s)} title={s} className="min-h-[44px] shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-cobalt ring-1 ring-cobalt/30">{CHIP_LABEL[i]}</button>)}</div>
-      <form onSubmit={e => { e.preventDefault(); text.trim() && send(text.trim()) }} className="flex gap-2"><input value={text} onChange={e => setText(e.target.value)} placeholder="Type a message…" className="min-h-[44px] flex-1 rounded-xl border border-ink/15 bg-white px-3 text-sm" />
-        <button aria-label="Send" className="grid h-11 w-11 place-items-center rounded-xl bg-coral text-white"><Send size={18} /></button></form>
+      {local.receipt && <Card className="mb-2 text-xs"><p className="break-all"><UI text="Selected receipt " />{local.receipt.draft_id} <UI text=" · version " />{local.receipt.version}<UI text=". Messages review this receipt; chat never confirms it." /></p><Btn kind="ghost" disabled={disabled} onClick={() => { try { persist({...localRef.current, receipt: undefined}) } catch (e) { setError(e) } }}><UI text="Clear receipt context" /></Btn></Card>}
+      <div className="mb-2 flex gap-2 overflow-x-auto">{STARTERS.map(([label, message]) => <button key={label} disabled={disabled || !session} onClick={() => { try { persist({...localRef.current, receipt: undefined}); void send(t(message)) } catch (e) { setError(e) } }} className="min-h-[44px] shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-cobalt ring-1 ring-cobalt/30 disabled:opacity-40"><UI text={label} /></button>)}</div>
+      <form onSubmit={e => { e.preventDefault(); if (!disabled && text.trim()) void send(text) }} className="flex gap-2"><input aria-label={t('Agent message')} maxLength={2000} value={text} disabled={disabled || !session} onChange={e => setText(e.target.value)} placeholder={t('Type a message…')} className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-ink/15 bg-white px-3 text-sm" /><button aria-label={t('Send')} disabled={disabled || !session || !text.trim()} className="grid h-11 w-11 place-items-center rounded-xl bg-coral text-white disabled:opacity-40"><Send size={18} /></button></form>
     </div>
-    {save && <SaveFlow preview={() => api.agentProposalPreview(sid, save.pid)} save={(k, ack) => api.agentProposalSave(sid, save.pid, k, save.token, ack)} onClose={() => setSave(null)} onDone={() => { setSave(null); bump(); push(mk('agent', { k: 'text', text: 'Saved as a pending plan — no balances changed.' })) }} />}
+    {proposal && session && <AgentProposal api={backend} session={session.session_id} id={proposal} state={local.proposals[proposal] ?? {}} update={next => updateProposal(proposal, next)} onClose={() => setProposal(null)} onDone={plan => saveDone(proposal, plan)} />}
+    {completion && api.homeBackend && <PlanCompletion key={completion.plan.plan.plan_id} api={api.homeBackend} plan={completion.plan} accounts={completion.accounts} onClose={() => { setCompletion(null); bump() }} onDone={message => {
+      const next = {...localRef.current, resolved: {...localRef.current.resolved, [completion.plan.plan.plan_id]: 'resolved; read Home for current status'}}
+      localRef.current = next; setLocal(next); setCompletion(null); setNotice(message); bump()
+      try { writeState(backend.storageNamespace, next) } catch { /* Known posting success remains final. */ }
+      void readHistory(next.session).catch(e => setHistoryError(e))
+    }} />}
+    {receipt && session && <ReceiptReview key={`${session.session_id}:${receipt.draft ?? receipt.workflow}`} session={session.session_id} {...receipt} onClose={() => setReceipt(null)} onAgentReview={ref => { setReceipt(null); void send(t('Read the selected receipt review and identify anything requiring user review.'), undefined, undefined, ref) }} onDone={() => { setNotice('Shared bill recorded by Node. Home, ledger and risk reads refresh separately.'); void readHistory(session.session_id).catch(e => setHistoryError(e)) }} />}
   </div>
 }
