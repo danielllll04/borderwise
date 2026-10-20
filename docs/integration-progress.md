@@ -382,3 +382,9 @@ The existing local database was used without reseeding or resetting. Baseline Ho
 ### Phase 4 status
 
 Supported MYR-funded Agent -> Compare -> reserve preview -> explicit Save -> Home -> cancel journey: **PASS**. Exact grouped-amount scenario and KRW-funded ATM variant: **BLOCKED/UNSUPPORTED**, documented above. No completion confirmation or financial posting was performed in this phase. Phase 5 remains pending the next instruction.
+
+## Focused balance and reserve fixes (20 October 2026)
+
+- [Balance posting/refresh trace](home-integration.md): isolated Save/preview non-posting, actual principal/separate fee confirmation, gross shared-bill debit and repayment-without-income all passed, including concurrent replay and duplicate plan/receipt rejection. No posting arithmetic change was needed. Focused Home browser reads matched Node.
+- [Reserve conversation correction](agent.md#reserve-conversation-correction-20-october-2026): distinguish fixed and emergency targets, use Node-calculated impact, clarify ambiguous “exit fixed reserve”, and directly refresh the owned preview for an explicit reserve follow-up. No reserve editing, chat writes or real bank execution is introduced. Separate reserve fields render in Agent cards; historic cards remain readable.
+- Real Groq English/Chinese initial comparisons passed; initial Chinese 429 and the observed empty/incorrect follow-up tool choices are documented separately. Final clarification/resume checks deliberately forbid model calls. Pricing/OCR remain Simulated. Backend/frontend type checks and changed-file lint are the scoped code checks; frontend type checking needed a sequential low-memory retry after a local V8 memory failure. No full regression suite or dependency upgrade was run.

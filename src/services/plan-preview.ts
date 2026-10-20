@@ -78,6 +78,8 @@ export async function assessActivity(
     current_balance: financialValue(safeNumber(myr.balanceMinor), 'MYR', readBadge(myr.balanceBadgeJson)),
     total_debit: financialValue(safeNumber(myrChange?.debit ?? 0n), 'MYR', deriveBadge(reserveMovementInputs, 'Sum of principal and fee debits from MYR Funding')),
     projected_balance: financialValue(safeNumber(myrProjected), 'MYR', reserveBadge),
+    fixed_expense_reserve: financialValue(safeNumber(prepared.profile.fixedReserveMinor), 'MYR', readBadge(prepared.profile.fixedReserveBadgeJson)),
+    emergency_reserve: financialValue(safeNumber(prepared.profile.emergencyReserveMinor), 'MYR', readBadge(prepared.profile.emergencyBadgeJson)),
     total_reserve: budget.total_reserve,
     projected_reserve_shortfall: financialValue(safeNumber(shortfall), 'MYR', reserveBadge),
     max_safe_total_debit: budget.max_safe_total_debit,
@@ -85,6 +87,7 @@ export async function assessActivity(
   const noFundingReserveCheck = {
     applicability: 'not_applicable', reason: 'KRW-funded principal: MYR reserves are not subtracted from this funding account.',
     current_balance: null, total_debit: null, projected_balance: null,
+    fixed_expense_reserve: null, emergency_reserve: null,
     total_reserve: null, projected_reserve_shortfall: null, max_safe_total_debit: null,
   };
   const response = {
