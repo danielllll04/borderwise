@@ -6,7 +6,7 @@ import { AppError } from '../domain/errors.js';
 import { deriveBadge, financialValue, readBadge, type FinancialValue } from '../domain/provenance.js';
 import { safeNumber } from '../domain/validation.js';
 import type { Badge, Currency, LedgerEntry, Money, RateSnapshot, Receivable } from '../shared/models.js';
-import { postingSchema, type PostingInput } from './posting-inputs.js';
+import { postingSchema, type PostingInput, type SettlementInput } from './posting-inputs.js';
 import { accountResponse, ledgerContract, receivableContract, type AccountResponse } from './serialization.js';
 import { budgetResponse } from './budget.js';
 import type { SharedExpenseDetails } from './shared-expenses.js';
@@ -19,6 +19,9 @@ export interface PostingResult {
   shared_expense?: SharedExpenseDetails;
   pending_plan_follow_up?: typeof ASSESSMENT_FOLLOW_UP;
   settlement?: {
+    settlement_id?: string;
+    recorded_at?: string;
+    confirmation?: SettlementInput['confirmation'];
     receivable: Receivable;
     amount_badge: Badge;
     cleared: FinancialValue;
@@ -281,7 +284,7 @@ export class LedgerService {
         where: { id: receivable.id, settledMinor: receivable.settledMinor }, data: { settledMinor: settled },
       });
       if (changed.count !== 1) throw new AppError(409, 'CONCURRENT_UPDATE', 'Receivable changed concurrently; retry with the same idempotency key');
-      await tx.settlement.create({ data: {
+      const settlementRecord = await tx.settlement.create({ data: {
         id: randomUUID(), activityId, receivableId: receivable.id,
         clearingMinor: BigInt(input.amount_cleared.amount_minor), clearingCurrency: input.amount_cleared.currency,
         receivedMinor: BigInt(input.amount_received.amount_minor), receivedCurrency: input.amount_received.currency,
@@ -292,6 +295,8 @@ export class LedgerService {
       });
       const remainingInputs = [readBadge(receivable.amountBadgeJson), ...historical.map(item => (JSON.parse(item.activity.inputJson) as PostingInput).badge)];
       result.settlement = {
+        settlement_id: settlementRecord.id, recorded_at: settlementRecord.createdAt.toISOString(),
+        ...(input.confirmation ? { confirmation: input.confirmation } : {}),
         receivable: receivableContract({ ...receivable, settledMinor: settled }),
         amount_badge: readBadge(receivable.amountBadgeJson),
         cleared: financialValue(input.amount_cleared.amount_minor, input.amount_cleared.currency, input.badge),

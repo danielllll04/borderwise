@@ -24,7 +24,7 @@ export type AgentCard =
   | ReceiptCard
   | { type: 'quote_comparison'; source: 'simulated_fixture' | 'compare'; ranking: string; options: (ComparisonOption & { snapshot_id: string; preview: ActivityAssessment['response'] | null; blocking_error: string | null })[] }
   | { type: 'reserve_warning'; proposal_id: string; data: ActivityAssessment['response'] }
-  | { type: 'comparison_unavailable'; status: 'requote_required' | 'unsupported'; reason: string }
+  | { type: 'comparison_unavailable'; status: 'requote_required' | 'unsupported' | 'unavailable'; reason: string; code?: string }
   | { type: 'existing_balance_alternative'; account_id: string; balance: import('../domain/provenance.js').FinancialValue; reason: string }
   | ProposalCard;
 

@@ -67,7 +67,7 @@ const parameters: Record<keyof typeof schemas, Record<string, unknown>> = {
 export const AGENT_TOOLS: ToolDefinition[] = (Object.keys(schemas) as (keyof typeof schemas)[]).map(name => ({
   type: 'function', function: { name, description: descriptions[name], parameters: parameters[name] },
 }));
-export interface StagedQuote { id: string; selection: Selection; assumptions: ComparisonOption['assumptions'] }
+export interface StagedQuote { id: string; selection: Selection; assumptions: ComparisonOption['assumptions'] & { integration?: ComparisonOption['integration'] } }
 export interface StagedProposal { id: string; snapshotId: string; card: ProposalCard; persisted: boolean }
 export interface ExecutionMetadata { id: string; toolName: string; argsJson: string; outcome: string; summaryJson: string; durationMs: number }
 
@@ -102,6 +102,7 @@ export class AgentTools {
       result = await this.dispatch(name as keyof typeof schemas, validated);
     } catch (error) {
       outcome = 'rejected';
+      if (name === 'compare_options' && error instanceof AppError && error.code.startsWith('COMPARE_')) this.cards.push({ type: 'comparison_unavailable', status: 'unavailable', code: error.code, reason: error.message });
       if (['extract_receipt_review', 'read_receipt_review', 'propose_receipt_allocation'].includes(name)) this.cards.push({ type: 'receipt_workflow_unavailable', code: error instanceof AppError ? error.code : 'RECEIPT_WORKFLOW_UNAVAILABLE', reason: error instanceof AppError ? error.message : 'Receipt review could not be completed. No financial action occurred.', financial_mutation: false });
       if (error instanceof AppError && error.code === 'INSUFFICIENT_FUNDS') this.cards.push({ type: 'comparison_unavailable', status: 'unsupported', reason: 'The selected activity would make an owned account negative. Request another complete quote; acknowledgement cannot bypass insufficient funds.' });
       if (error instanceof AppError && error.code === 'DECISION_CHANGED') this.cards.push({ type: 'comparison_unavailable', status: 'unsupported', reason: 'The stored proposal does not match the latest decision. Select that proposal explicitly or request a complete quote for the new decision.' });
@@ -192,11 +193,11 @@ export class AgentTools {
           const alternative = availableDestinationBalance(home.data, this.understanding.decision);
           if (alternative) this.cards.push({ type: 'existing_balance_alternative', ...alternative });
         }
-        const result = validateComparison(await this.readWithRetry(() => this.compare.compare(this.understanding.decision)), this.understanding.decision);
+        const result = validateComparison(await this.compare.compare(this.understanding.decision), this.understanding.decision);
         if (result.status !== 'ready') { this.cards.push({ type: 'comparison_unavailable', ...result }); return { kind: 'comparison_unavailable', status: result.status }; }
         const options: Extract<AgentCard, { type: 'quote_comparison' }>['options'] = [];
         for (const option of result.options) {
-          const quote = { id: randomUUID(), selection: option.selection, assumptions: option.assumptions };
+          const quote = { id: randomUUID(), selection: option.selection, assumptions: { ...option.assumptions, ...(option.integration ? { integration: option.integration } : {}) } };
           this.quotes.push(quote);
           let preview = null;
           let blockingError = null;
@@ -205,7 +206,7 @@ export class AgentTools {
           options.push({ ...option, snapshot_id: quote.id, preview, blocking_error: blockingError });
         }
         this.cards.push({ type: 'quote_comparison', source: result.source, ranking: result.ranking, options });
-        return { kind: 'comparison', snapshot_ids: options.filter(option => option.preview).map(option => option.snapshot_id), ranking: 'adapter_order', simulated: result.source === 'simulated_fixture' };
+        return { kind: 'comparison', snapshot_ids: options.filter(option => option.preview).map(option => option.snapshot_id), ranking: 'adapter_order', simulated: result.options.every(option => option.selection.quote.badge.status === 'Simulated') };
       }
       case 'preview_quote': {
         if (!this.previewAllowed) throw new AppError(400, 'DECISION_DETAILS_REQUIRED', 'An unrelated question cannot replace the pending proposal');

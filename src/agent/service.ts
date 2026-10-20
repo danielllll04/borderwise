@@ -5,7 +5,8 @@ import { AppError } from '../domain/errors.js';
 import { payloadHash } from '../domain/idempotency.js';
 import { makeBadge } from '../domain/provenance.js';
 import { configuredModel, ProviderError, type ModelAdapter, type ModelMessage } from './model.js';
-import { FixtureCompareAdapter, type CompareAdapter } from './compare.js';
+import type { CompareAdapter } from './compare.js';
+import { configuredCompare } from '../integrations/configured-compare.js';
 import { decisionSchema, historySchema, messageSchema } from './inputs.js';
 import { isChineseText, understand } from './decision.js';
 import { AGENT_TOOLS, AgentTools } from './tools.js';
@@ -41,7 +42,7 @@ End when the required cards are ready. Your text and private reasoning are not u
 
 export class AgentService {
   readonly proposals: ProposalService;
-  constructor(private readonly db: PrismaClient, private readonly model: ModelAdapter = configuredModel(), private readonly compare: CompareAdapter = new FixtureCompareAdapter(), private readonly receipts = new ReceiptService(db)) {
+  constructor(private readonly db: PrismaClient, private readonly model: ModelAdapter = configuredModel(), private readonly compare: CompareAdapter = configuredCompare(), private readonly receipts = new ReceiptService(db)) {
     this.proposals = new ProposalService(db);
   }
 
@@ -207,6 +208,10 @@ export class AgentService {
         ? text('Pending-plan assessments are temporarily unavailable. Refresh this read separately; do not retry a successful financial action.', '待处理计划评估暂时不可用。请单独刷新此读取；不要重复已成功的财务操作。')
         : text('Review the current assessment cards. Each pending plan is assessed independently; these results do not guarantee all plans are affordable together. A reserve acknowledgement cannot override insufficient tracked funds. I can help review supported options; changing or completing a plan requires its explicit frontend action.', '请查看当前评估卡。每个待处理计划均独立评估；这些结果不能保证所有计划合并后都可负担。确认储备金不能覆盖已记录资金不足的情况。我可以协助查看支持的选项；更改或完成计划需要明确的前端操作。');
     } else if (runtime.cards.some(card => card.type === 'comparison_unavailable')) {
+      const unavailable = runtime.cards.find(card => card.type === 'comparison_unavailable' && card.status === 'unavailable');
+      if (unavailable?.type === 'comparison_unavailable') return { ...base, status: 'unavailable', explanation: unavailable.reason, next_action: 'retry_later', ...(unavailable.code ? { error_code: unavailable.code } : {}) };
+      const unsupported = runtime.cards.find(card => card.type === 'comparison_unavailable' && card.status === 'unsupported');
+      if (unsupported?.type === 'comparison_unavailable') return { ...base, status: 'unsupported', explanation: unsupported.reason, next_action: 'request_revised_quote' };
       base.explanation = text('A complete supported quote is required. I cannot invent a revised amount, fees or exchange result.', '需要完整且受支持的报价。我不能编造修改后的金额、手续费或换汇结果。');
       base.next_action = 'request_revised_quote';
     } else if (!runtime.cards.length) base.next_action = 'ask_supported_question';

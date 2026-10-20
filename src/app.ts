@@ -10,6 +10,7 @@ import { SharedExpenseService } from './services/shared-expenses.js';
 import { PendingPlanRiskService } from './services/pending-plan-risk.js';
 import { ReceiptService, type ReceiptOptions } from './receipts/service.js';
 import { registerReceiptRoutes } from './receipts/routes.js';
+import { registerSettlementRoutes } from './settlements/routes.js';
 
 const ledgerQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -95,6 +96,7 @@ export function buildApp(db: PrismaClient, logger = true, receiptOptions: Receip
     emptyQuery.parse(request.query); return plans.confirm(planParams.parse(request.params).planId, request.body);
   });
   const receipts = new ReceiptService(db, receiptOptions);
+  registerSettlementRoutes(app, db);
   registerReceiptRoutes(app, receipts);
   registerAgentRoutes(app, db, receipts);
   return app;

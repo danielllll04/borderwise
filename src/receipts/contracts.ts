@@ -17,6 +17,11 @@ export type ReceiptData = z.infer<typeof receiptDataSchema>;
 export const extractionSchema = z.object({
   receipt_id: stableId, receipt: receiptDataSchema, badge: badgeSchema,
   confidence: z.number().min(0).max(1).optional(), fixture_notice: z.string().max(500).optional(),
+  integration: z.object({
+    service: z.literal('steve_receipt'), upstream_receipt: z.record(z.unknown()),
+    image_sha256: z.string().regex(/^[a-f0-9]{64}$/), bytes_received: z.number().int().positive().max(4194304),
+    reads_image_content: z.boolean(), mode: z.literal('sample'),
+  }).strict().optional(),
 }).strict();
 export type ReceiptExtraction = z.infer<typeof extractionSchema>;
 export const assignmentSchema = z.object({ item_id: stableId, participant_ids: z.array(stableId).min(1).max(20) }).strict();
@@ -37,11 +42,12 @@ export const allocationResultSchema = z.object({
   total: positiveMoneySchema, payer_share: moneySchema,
   debtor_shares: z.array(z.object({ participant_id: stableId, share: positiveMoneySchema }).strict()).max(19),
   badge: badgeSchema,
+  integration: z.object({ service: z.literal('steve_receipt'), preview_only: z.literal(true), financial_mutation: z.literal(false), upstream_preview: z.record(z.unknown()) }).strict().optional(),
 }).strict();
 export type AllocationResult = z.infer<typeof allocationResultSchema>;
 export interface Participant { participant_id: string; display_name: string }
 
-/** Proposed ports only. No Steve endpoint URL or agreed schema exists in this repository. */
+/** Internal review ports; Steve HTTP maps explicitly to the additive review-only routes. */
 export interface ReceiptOcrAdapter {
   extract(input: { attachment_id: string; bytes: Buffer; content_type: 'image/png' }): Promise<unknown>;
 }

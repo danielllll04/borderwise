@@ -1,0 +1,4 @@
+# Match the runtime versions in Steve's tracked environment; do not reuse its Linux .venv on Windows.
+fastapi==0.147.0
+uvicorn==0.54.0
+pydantic==2.14.1
